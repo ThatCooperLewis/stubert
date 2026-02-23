@@ -28,6 +28,7 @@ cargo test
 cargo test --lib config
 cargo test --lib gateway::claude_cli
 cargo test --lib gateway::session
+cargo test --lib gateway::history
 cargo test --lib logging
 ```
 
@@ -43,6 +44,7 @@ src/
 ├── gateway/
 │   ├── mod.rs               # Module declarations
 │   ├── claude_cli.rs        # call_claude(), model aliasing, arg assembly
+│   ├── history.rs           # HistoryWriter (daily transcripts, search)
 │   └── session.rs           # Session + SessionManager (message queue, persistence, inactivity timers)
 └── logging.rs               # setup_logging(), TelegramTransientFilter
 ```
