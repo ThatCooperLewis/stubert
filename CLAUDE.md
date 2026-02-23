@@ -8,26 +8,28 @@ Stubert is a personal AI agent service written in Rust that bridges messaging pl
 
 ## Build & Test Commands
 
-All development runs through Docker — there is no local Rust environment.
+All development runs through Docker — there is no local Rust environment. The image contains the Rust toolchain and pre-compiled dependencies; the host `src/` is mounted at runtime. Code changes only require a container restart, not an image rebuild.
 
 ```bash
-# Build
+# Build image (only needed when Cargo.toml/Cargo.lock change)
 docker build -t stubert:local .
 
 # Run all unit tests
-docker run --rm stubert:local test
+docker run --rm -v ./src:/app/src stubert:local test
 
 # Run a specific test
-docker run --rm stubert:local test --test test_session
+docker run --rm -v ./src:/app/src stubert:local test --test test_session
 
 # Run live integration tests (real Claude CLI, needs auth mounts)
 docker run --rm \
+  -v ./src:/app/src \
   -v "$HOME/.claude":/root/.claude \
   -v "$HOME/.claude.json":/root/.claude.json \
   stubert:local test --test live
 
 # Start the service
 docker run --rm \
+  -v ./src:/app/src \
   -v ./config:/data \
   -v "$HOME/.claude":/root/.claude \
   -v "$HOME/.claude.json":/root/.claude.json \
@@ -114,7 +116,9 @@ The project follows a 13-phase build plan (see `design-docs/build-plan.md`) with
 
 ## Docker & Deployment
 
-- Multi-stage Dockerfile: Rust builder → Debian slim runtime with Node.js 20 + Claude CLI
+- Single-stage Dockerfile: Rust toolchain + system deps + Node.js 20 + Claude CLI + pre-compiled dependencies
+- Source mounted at runtime (`./src:/app/src`), compiled on container startup
+- Image rebuild only needed for dependency changes (`Cargo.toml`/`Cargo.lock`)
 - NixOS deployment: `docker-stubert.service` with `--network=host`
 - Rootless Docker: container UID 0 maps to host UID 1000 (no privilege escalation)
 - Container runs as root because rootless Docker maps it to the host user

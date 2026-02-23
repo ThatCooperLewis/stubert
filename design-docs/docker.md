@@ -2,31 +2,32 @@
 
 Stubert runs in a Docker container. There is no local development environment — all building, testing, and running happens through Docker.
 
+## Development Model
+
+The image contains the Rust toolchain and pre-compiled dependencies but **not** the application source. The host `src/` directory is mounted into the container at runtime. The entrypoint compiles from the mounted source on startup, so code changes only require a container restart — not an image rebuild.
+
+**When to rebuild the image:** Only when `Cargo.toml` or `Cargo.lock` change (new/updated dependencies).
+
+**When to restart the container:** Any change to files in `src/`.
+
 ## Image Build
 
-The Dockerfile is a single-stage build:
+The Dockerfile is a single-stage build that includes the Rust toolchain:
 
-1. **Base image:** Rust (version TBD — likely `rust:1.xx-slim-bookworm` for build, `debian:bookworm-slim` for runtime if using multi-stage)
+1. **Base image:** `rust:1.xx-slim-bookworm` (toolchain stays in the image)
 2. **System dependencies:**
    - `curl` — health check
    - `ffmpeg` — audio format conversion (for whisper)
    - Node.js 20.x — Claude Code CLI runtime
 3. **Claude Code CLI:** Installed globally via `npm install -g @anthropic-ai/claude-code`
-4. **Rust build:** Compile the project in release mode
+4. **Dependency pre-build:** `Cargo.toml` and `Cargo.lock` are copied in and dependencies are compiled against a dummy `main.rs`. This means the expensive dependency compilation is cached in the image layer — only the project source (mounted at runtime) needs to compile on startup.
 5. **Copy entrypoint script**
 
-For the Rust rewrite, consider a multi-stage build:
+Source code is **not** copied into the image. It is mounted at runtime.
 
 ```dockerfile
-# Stage 1: Build
-FROM rust:1.xx-slim-bookworm AS builder
-WORKDIR /app
-COPY Cargo.toml Cargo.lock ./
-COPY src/ src/
-RUN cargo build --release
+FROM rust:1.xx-slim-bookworm
 
-# Stage 2: Runtime
-FROM debian:bookworm-slim
 RUN apt-get update && apt-get install -y --no-install-recommends \
     curl ffmpeg gnupg \
     && curl -fsSL https://deb.nodesource.com/setup_20.x | bash - \
@@ -34,7 +35,15 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 RUN npm install -g @anthropic-ai/claude-code
 
-COPY --from=builder /app/target/release/stubert /usr/local/bin/stubert
+WORKDIR /app
+
+# Pre-build dependencies (cached in image layer)
+COPY Cargo.toml Cargo.lock ./
+RUN mkdir src && echo 'fn main() {}' > src/main.rs \
+    && cargo build --release \
+    && cargo build --release --tests \
+    && rm -rf src
+
 COPY docker-entrypoint.sh /usr/local/bin/docker-entrypoint.sh
 
 EXPOSE 8484
@@ -46,7 +55,7 @@ CMD ["serve"]
 
 ## Entrypoint
 
-The entrypoint script dispatches based on the first argument:
+The entrypoint script compiles from the mounted source, then dispatches based on the first argument:
 
 ```sh
 #!/bin/sh
@@ -54,7 +63,8 @@ set -e
 
 case "${1:-serve}" in
     serve)
-        exec stubert --runtime-dir /data
+        cargo build --release
+        exec /app/target/release/stubert --runtime-dir /data
         ;;
     test)
         shift
@@ -65,6 +75,10 @@ case "${1:-serve}" in
         ;;
 esac
 ```
+
+In `serve` mode, the entrypoint builds the project in release mode from the mounted `src/`, then exec's the resulting binary. Because dependencies are pre-compiled in the image, this only compiles the project source — typically a few seconds.
+
+In `test` mode, `cargo test` handles its own compilation.
 
 **Modes:**
 
@@ -78,13 +92,20 @@ esac
 
 ## Volumes
 
-Three mount points are used at runtime:
+Four mount points are used at runtime:
 
 | Host Path | Container Path | Purpose |
 |-----------|---------------|---------|
+| `./src` | `/app/src` | Live source code (compiled on container startup) |
 | `./config` | `/data` | Runtime directory (config, memory files, history, logs, sessions) |
 | `$HOME/.claude` | `/root/.claude` | Claude Code authentication token |
 | `$HOME/.claude.json` | `/root/.claude.json` | Claude Code authentication metadata |
+
+### Source Mount (`/app/src`)
+
+The host `src/` directory is mounted into the container at `/app/src`, overlaying the dummy source used during the dependency pre-build. The entrypoint compiles from this mounted source on every startup. Because the image already contains pre-compiled dependencies in `/app/target/`, only the project source needs to compile — this is fast (a few seconds for incremental builds).
+
+The `/app/target/` directory lives inside the container's writable layer. It persists across entrypoint compilation but is lost when the container is removed. This is fine — dependency artifacts are rebuilt from the image cache, and source compilation is fast.
 
 ### Runtime Directory (`/data`)
 
@@ -133,32 +154,38 @@ The `/health` endpoint returns JSON with status, uptime, active sessions, and re
 ### Service Mode
 
 ```bash
+# Build image (only needed when dependencies change)
 docker build -t stubert:local .
 
+# Run (compiles src/ on startup)
 docker run --rm \
+  -v ./src:/app/src \
   -v ./config:/data \
   -v "$HOME/.claude":/root/.claude \
   -v "$HOME/.claude.json":/root/.claude.json \
   stubert:local
 ```
 
+After editing files in `src/`, stop the container and re-run the same `docker run` command. The entrypoint recompiles from the mounted source — no image rebuild needed.
+
 ### Test Mode
 
 ```bash
 # All tests
-docker run --rm stubert:local test
+docker run --rm -v ./src:/app/src stubert:local test
 
 # Specific test
-docker run --rm stubert:local test --test test_session
+docker run --rm -v ./src:/app/src stubert:local test --test test_session
 
 # With specific test name filter
-docker run --rm stubert:local test -- --test-threads=1
+docker run --rm -v ./src:/app/src stubert:local test -- --test-threads=1
 ```
 
 For live integration tests (real Claude CLI calls):
 
 ```bash
 docker run --rm \
+  -v ./src:/app/src \
   -v "$HOME/.claude":/root/.claude \
   -v "$HOME/.claude.json":/root/.claude.json \
   stubert:local test --test live
@@ -172,6 +199,7 @@ For development without `--network=host`:
 
 ```bash
 docker run --rm -p 8484:8484 \
+  -v ./src:/app/src \
   -v ./config:/data \
   -v "$HOME/.claude":/root/.claude \
   -v "$HOME/.claude.json":/root/.claude.json \
@@ -192,8 +220,9 @@ The production deployment is defined in a NixOS container module:
 
 The Dockerfile is structured for layer caching:
 
-1. **Dependencies first:** `Cargo.toml` and `Cargo.lock` are copied and dependencies built before source code. This means dependency changes (rare) bust the cache, but source changes (frequent) only rebuild the project itself.
-2. **Dev dependencies included:** Test dependencies are included in the image so the same image can run both the service and tests.
+1. **Dependencies pre-compiled:** `Cargo.toml` and `Cargo.lock` are copied in and dependencies are built against a dummy `main.rs`. This layer is cached — it only rebuilds when `Cargo.toml` or `Cargo.lock` change.
+2. **Dev dependencies included:** Both release and test dependencies are pre-compiled so the same image supports `serve` and `test` modes.
+3. **Source not in image:** Because `src/` is mounted at runtime, source changes never invalidate any image layer. Only dependency changes require an image rebuild.
 
 ## Rootless Docker Note
 
