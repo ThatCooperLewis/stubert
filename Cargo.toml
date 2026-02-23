@@ -13,9 +13,12 @@ tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 tracing-appender = "0.2"
 rolling-file = "0.2"
 thiserror = "2"
+async-trait = "0.1"
+regex = "1"
 chrono = { version = "0.4", features = ["serde"] }
 uuid = { version = "1", features = ["v4"] }
 
 [dev-dependencies]
 tempfile = "3"
+mockall = "0.13"
 tokio = { version = "1", features = ["full", "test-util"] }

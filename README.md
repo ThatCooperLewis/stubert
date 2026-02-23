@@ -29,6 +29,7 @@ cargo test --lib config
 cargo test --lib gateway::claude_cli
 cargo test --lib gateway::session
 cargo test --lib gateway::history
+cargo test --lib adapters
 cargo test --lib logging
 ```
 
@@ -41,6 +42,11 @@ src/
 ├── config/
 │   ├── mod.rs               # load_config(), env var interpolation
 │   └── types.rs             # Config structs (StubbertConfig + sub-configs)
+├── adapters/
+│   ├── mod.rs               # PlatformAdapter trait, IncomingMessage, AdapterError
+│   ├── markdown.rs          # to_telegram() (MarkdownV2), to_discord()
+│   ├── message_split.rs     # split_message() (code-block-aware chunking)
+│   └── sanitize.rs          # sanitize_filename() (path stripping, collision resolution)
 ├── gateway/
 │   ├── mod.rs               # Module declarations
 │   ├── claude_cli.rs        # call_claude(), model aliasing, arg assembly
