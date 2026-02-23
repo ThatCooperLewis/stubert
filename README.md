@@ -26,7 +26,8 @@ cargo test
 
 # Run tests for a specific module
 cargo test --lib config
-cargo test --lib gateway
+cargo test --lib gateway::claude_cli
+cargo test --lib gateway::session
 cargo test --lib logging
 ```
 
@@ -40,8 +41,9 @@ src/
 │   ├── mod.rs               # load_config(), env var interpolation
 │   └── types.rs             # Config structs (StubbertConfig + sub-configs)
 ├── gateway/
-│   ├── mod.rs               # Module declaration
-│   └── claude_cli.rs        # call_claude(), model aliasing, arg assembly
+│   ├── mod.rs               # Module declarations
+│   ├── claude_cli.rs        # call_claude(), model aliasing, arg assembly
+│   └── session.rs           # Session + SessionManager (message queue, persistence, inactivity timers)
 └── logging.rs               # setup_logging(), TelegramTransientFilter
 ```
 
