@@ -4,11 +4,11 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-Stubert is a personal AI agent service written in Rust that bridges messaging platforms (Telegram, Discord) to Claude Code CLI sessions. It runs as a single async process on a homelab server. The full architecture and design are documented in `design-docs/`.
+Stubert is a personal AI agent service written in Rust that bridges messaging platforms (Telegram, Discord) to Claude Code CLI sessions. It runs as a single async process on a homelab server. See `README.md` for the full user-facing documentation and `design-docs/` for architecture details.
 
 ## Build & Test Commands
 
-### Rust
+### Local (requires Rust toolchain)
 
 ```bash
 # Build
@@ -21,7 +21,7 @@ cargo test
 cargo test --lib adapters::telegram
 cargo test --lib gateway::session
 
-# Integration tests (mocked Claude CLI)
+# Integration tests (mocked Claude CLI, full Gateway pipeline)
 cargo test --test gateway_integration
 
 # Live tests (real Claude CLI, requires auth)
@@ -34,16 +34,16 @@ cargo test --test live_cli -- --ignored
 # Build image (only needed when Cargo.toml/Cargo.lock change)
 docker build -t stubert:local .
 
-# Run all unit tests
-docker run --rm -v ./src:/app/src stubert:local test
+# Run all tests
+docker run --rm -v ./src:/app/src -v ./tests:/app/tests stubert:local test
 
-# Run a specific test
-docker run --rm -v ./src:/app/src stubert:local test --test test_session
+# Run a specific test module
+docker run --rm -v ./src:/app/src stubert:local test --lib gateway::session
 
-# Run integration tests
+# Integration tests
 docker run --rm -v ./src:/app/src -v ./tests:/app/tests stubert:local test --test gateway_integration
 
-# Run live CLI tests (real Claude CLI, needs auth mounts)
+# Live CLI tests (real Claude CLI, needs auth mounts)
 docker run --rm \
   -v ./src:/app/src \
   -v ./tests:/app/tests \
@@ -52,7 +52,8 @@ docker run --rm \
   stubert:local test --test live_cli -- --ignored
 
 # Start the service
-docker run --rm \
+docker run -d --name stubert \
+  --network=host \
   -v ./src:/app/src \
   -v ./config:/data \
   -v "$HOME/.claude":/root/.claude \
@@ -77,30 +78,44 @@ Telegram/Discord message
 
 The adapter normalizes platform input into `IncomingMessage`. The gateway routes it — slash commands handled immediately, everything else queues into the session's message buffer. A per-session consumer task drains the queue, batches waiting messages, invokes Claude CLI as a subprocess, and sends the response back.
 
-### Module Layout
+### Project Structure
 
 ```
 stubert/
-├── main.rs                    # Entry point, signal handling, wiring
-├── config/                    # YAML loading with ${ENV_VAR} interpolation
-├── gateway/
-│   ├── core.rs                # Central Gateway orchestrator
-│   ├── session.rs             # Session state + SessionManager
-│   ├── claude_cli.rs          # Subprocess wrapper (--output-format json)
-│   ├── commands.rs            # 9 slash commands
-│   ├── skills.rs              # Skill discovery from .claude/skills/
-│   ├── health.rs              # HTTP health endpoint (axum, port 8484)
-│   ├── heartbeat.rs           # Periodic monitoring loop (reads HEARTBEAT.md)
-│   ├── scheduler.rs           # Cron task execution (schedules.yaml)
-│   └── history.rs             # Daily transcript writer + search
-├── adapters/
-│   ├── mod.rs                 # PlatformAdapter trait, IncomingMessage
-│   ├── telegram.rs            # teloxide long-polling adapter
-│   ├── discord.rs             # serenity WebSocket adapter
-│   ├── markdown.rs            # Platform-specific markdown conversion
-│   ├── message_split.rs       # Code-block-aware message chunking (2000 char limit)
-│   └── sanitize.rs            # Filename sanitization
-└── logging.rs                 # tracing setup, TelegramTransientFilter
+├── src/
+│   ├── main.rs                  # Entry point, signal handling, wiring
+│   ├── lib.rs                   # Module declarations
+│   ├── config/
+│   │   ├── mod.rs               # load_config(), env var interpolation
+│   │   └── types.rs             # Config structs (StubbertConfig + sub-configs)
+│   ├── adapters/
+│   │   ├── mod.rs               # PlatformAdapter trait, IncomingMessage, AdapterError
+│   │   ├── telegram.rs          # TelegramAdapter (teloxide long-polling, media downloads)
+│   │   ├── discord.rs           # DiscordAdapter (serenity WebSocket, slash commands, media)
+│   │   ├── markdown.rs          # to_telegram() (MarkdownV2), to_discord()
+│   │   ├── message_split.rs     # split_message() (code-block-aware chunking)
+│   │   └── sanitize.rs          # sanitize_filename() (path stripping, collision resolution)
+│   ├── gateway/
+│   │   ├── mod.rs               # Module declarations
+│   │   ├── core.rs              # Gateway orchestrator, message routing, consumer loop, lifecycle
+│   │   ├── claude_cli.rs        # call_claude(), model aliasing, arg assembly
+│   │   ├── commands.rs          # 9 slash commands, parse_command(), dispatch_command()
+│   │   ├── skills.rs            # SkillRegistry, frontmatter parsing from .claude/skills/*.md
+│   │   ├── health.rs            # HealthServer (HTTP health endpoint, runtime metrics)
+│   │   ├── heartbeat.rs         # HeartbeatRunner (periodic monitoring loop, log rotation)
+│   │   ├── scheduler.rs         # TaskScheduler (cron-based task execution, per-task logging)
+│   │   ├── history.rs           # HistoryWriter (daily transcripts, search)
+│   │   └── session.rs           # Session + SessionManager (message queue, persistence, inactivity timers)
+│   └── logging.rs               # setup_logging(), TelegramTransientFilter
+├── tests/
+│   ├── common/mod.rs            # Shared test helpers
+│   ├── gateway_integration.rs   # Full Gateway pipeline tests with mocked CLI
+│   └── live_cli.rs              # Real Claude CLI tests (#[ignore])
+├── design-docs/                 # Architecture and design documentation
+├── example-config/              # Example config.yaml, schedules.yaml, HEARTBEAT.md
+├── config/                      # Runtime directory (not checked in)
+├── Dockerfile                   # Single-stage: Rust + Node.js + Claude CLI + pre-compiled deps
+└── docker-entrypoint.sh         # Entrypoint: serve (default), test, or passthrough
 ```
 
 ### Key Design Decisions
@@ -123,12 +138,26 @@ stubert/
 
 ### Runtime Directory (`/data` in Docker)
 
-The service operates from a runtime directory containing config, memory files, history, logs, and sessions. All paths in `config.yaml` are relative to this directory.
+The service operates from a runtime directory (`config/` on host, `/data` in container) containing config, memory files, history, logs, and sessions. All paths in `config.yaml` are relative to this directory. See `example-config/` for templates.
 
-## Development Approach
+## Key Dependencies
 
-The project follows a 13-phase build plan (see `design-docs/build-plan.md`) with test-driven development throughout. Tests are written first using `#[tokio::test]` and `mockall` for trait mocking. Key test conventions:
+- **tokio** — async runtime
+- **teloxide 0.17** — Telegram bot framework (rustls)
+- **serenity 0.12** — Discord bot framework (rustls)
+- **axum 0.8** — HTTP server for health endpoint
+- **reqwest 0.12** — HTTP client for media downloads (rustls-tls)
+- **serde / serde_yaml_ng / serde_json** — config and data serialization
+- **tracing / tracing-subscriber** — structured logging
+- **cron 0.15** — cron expression parsing for scheduler
+- **mockall 0.13** (dev) — trait mocking for tests
+- **tempfile** (dev) — temp directories for file tests
 
+Uses `rustls` throughout (not `native-tls`) — NixOS doesn't have OpenSSL dev headers readily available.
+
+## Test Conventions
+
+- `#[tokio::test]` with `mockall` for trait mocking
 - Descriptive module/function names: `mod test_handle_new { fn resets_session() }`
 - Helper functions: `make_config()`, `make_incoming()`, `claude_success()`
 - All file tests use `tempfile` crate temp directories
@@ -138,8 +167,7 @@ The project follows a 13-phase build plan (see `design-docs/build-plan.md`) with
 ## Docker & Deployment
 
 - Single-stage Dockerfile: Rust toolchain + system deps + Node.js 20 + Claude CLI + pre-compiled dependencies
-- Source mounted at runtime (`./src:/app/src`), compiled on container startup
+- Source mounted at runtime (`./src:/app/src`), compiled on container startup — code changes only require `docker restart`, not image rebuild
 - Image rebuild only needed for dependency changes (`Cargo.toml`/`Cargo.lock`)
 - NixOS deployment: `docker-stubert.service` with `--network=host`
 - Rootless Docker: container UID 0 maps to host UID 1000 (no privilege escalation)
-- Container runs as root because rootless Docker maps it to the host user
