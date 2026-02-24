@@ -112,8 +112,8 @@ stubert/
 │   ├── gateway_integration.rs   # Full Gateway pipeline tests with mocked CLI
 │   └── live_cli.rs              # Real Claude CLI tests (#[ignore])
 ├── design-docs/                 # Architecture and design documentation
-├── example-config/              # Example config.yaml, schedules.yaml, HEARTBEAT.md
-├── config/                      # Runtime directory (not checked in)
+├── example-config/              # Git-committed example runtime files (templates)
+├── config/                      # Gitignored live runtime directory (actively used)
 ├── Dockerfile                   # Single-stage: Rust + Node.js + Claude CLI + pre-compiled deps
 └── docker-entrypoint.sh         # Entrypoint: serve (default), test, or passthrough
 ```
@@ -138,7 +138,12 @@ stubert/
 
 ### Runtime Directory (`/data` in Docker)
 
-The service operates from a runtime directory (`config/` on host, `/data` in container) containing config, memory files, history, logs, and sessions. All paths in `config.yaml` are relative to this directory. See `example-config/` for templates.
+The service operates from a runtime directory (`config/` on host, `/data` in container) containing config, memory files, history, logs, and sessions. All paths in `config.yaml` are relative to this directory.
+
+- **`example-config/`** — Git-committed example files serving as templates for the runtime directory. These are checked into the repo so new deployments have a reference starting point.
+- **`config/`** — Gitignored live runtime directory that is actively used by the running service. Contains real secrets, session state, logs, and history.
+
+When making changes that affect runtime file structure or config format, update both `example-config/` (committed reference) and `config/` (live runtime).
 
 ## Key Dependencies
 

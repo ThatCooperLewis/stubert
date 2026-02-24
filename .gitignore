@@ -3,3 +3,6 @@ target/
 
 # Log files
 logs/
+
+# Personal config files
+config/
