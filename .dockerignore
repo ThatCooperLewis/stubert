@@ -1,0 +1,8 @@
+target/
+.git/
+.gitignore
+design-docs/
+config/
+history/
+logs/
+*.md

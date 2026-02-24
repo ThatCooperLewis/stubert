@@ -464,7 +464,7 @@ All 9 commands implemented (see [commands.md](commands.md) for details):
 
 **Design doc:** [docker.md](docker.md)
 
-- Multi-stage Dockerfile (build + runtime)
+- Single-stage Dockerfile (Rust toolchain with pre-compiled dependencies)
 - Entrypoint script: serve / test / passthrough
 - Volume mounts: /data, /root/.claude, /root/.claude.json
 - HEALTHCHECK directive

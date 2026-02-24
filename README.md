@@ -221,4 +221,32 @@ Useful for Docker HEALTHCHECK, uptime monitors, and NixOS service checks.
 
 ## Docker
 
-Until Phase 12 is complete, all development runs through `cargo` locally. See `design-docs/docker.md` for the planned Docker setup.
+Stubert runs in Docker. The image contains the Rust toolchain and pre-compiled dependencies but not the application source — `src/` is mounted at runtime. Code changes only require a container restart, not an image rebuild.
+
+```bash
+# Build image (only needed when Cargo.toml/Cargo.lock change)
+docker build -t stubert:local .
+
+# Run all unit tests
+docker run --rm -v ./src:/app/src stubert:local test
+
+# Run a specific test
+docker run --rm -v ./src:/app/src stubert:local test --test test_session
+
+# Run live integration tests (real Claude CLI, needs auth mounts)
+docker run --rm \
+  -v ./src:/app/src \
+  -v "$HOME/.claude":/root/.claude \
+  -v "$HOME/.claude.json":/root/.claude.json \
+  stubert:local test --test live
+
+# Start the service
+docker run --rm \
+  -v ./src:/app/src \
+  -v ./config:/data \
+  -v "$HOME/.claude":/root/.claude \
+  -v "$HOME/.claude.json":/root/.claude.json \
+  stubert:local
+```
+
+See `design-docs/docker.md` for full details on volumes, networking, and NixOS deployment.
