@@ -22,9 +22,11 @@ reqwest = { version = "0.12", default-features = false, features = ["rustls-tls"
 serenity = { version = "0.12", default-features = false, features = ["rustls_backend", "client", "gateway", "model", "http", "builder"] }
 libc = "0.2"
 cron = "0.15"
+axum = { version = "0.8", default-features = false, features = ["json", "tokio", "http1"] }
 
 [dev-dependencies]
 tempfile = "3"
 mockall = "0.13"
 tokio = { version = "1", features = ["full", "test-util"] }
 filetime = "0.2.27"
+tower = { version = "0.5", features = ["util"] }

@@ -1,6 +1,7 @@
 pub mod claude_cli;
 pub mod commands;
 pub mod core;
+pub mod health;
 pub mod heartbeat;
 pub mod history;
 pub mod scheduler;

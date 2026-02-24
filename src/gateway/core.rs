@@ -645,6 +645,7 @@ pub struct Gateway {
     skill_registry: Arc<SkillRegistry>,
     heartbeat_trigger: Option<Arc<dyn HeartbeatTrigger>>,
     scheduler: Option<Arc<TaskScheduler>>,
+    health_server: Option<super::health::HealthServer>,
 }
 
 impl Gateway {
@@ -673,6 +674,7 @@ impl Gateway {
             skill_registry: Arc::new(skill_registry),
             heartbeat_trigger,
             scheduler: None,
+            health_server: None,
         }
     }
 
@@ -760,6 +762,20 @@ impl Gateway {
             }
         }
 
+        // Start health server
+        {
+            let state = super::health::HealthState {
+                start_time: self.start_time.unwrap().into_std(),
+                session_manager: Arc::clone(&self.session_manager),
+                heartbeat_trigger: self.heartbeat_trigger.clone(),
+                scheduler: self.scheduler.clone(),
+            };
+            let mut server = super::health::HealthServer::new();
+            let port = server.start(self.config.health.port, state).await;
+            self.health_server = Some(server);
+            tracing::info!(port = port, "health server started");
+        }
+
         // Post restart greeting
         let working_dir = PathBuf::from(&self.config.claude.working_directory);
         handle_restart_greeting(&working_dir, &self.adapters, &self.claude_caller, &self.config)
@@ -805,6 +821,11 @@ impl Gateway {
                     );
                 }
             }
+        }
+
+        // Stop health server
+        if let Some(mut server) = self.health_server.take() {
+            server.stop();
         }
 
         // Cancel and await all consumer tasks
@@ -916,7 +937,7 @@ mod tests {
                 log_max_bytes: None,
                 log_backup_count: None,
             },
-            health: HealthConfig { port: 8484 },
+            health: HealthConfig { port: 0 },
             scheduler: None,
             files: None,
             gateway: None,

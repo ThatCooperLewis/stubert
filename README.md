@@ -36,6 +36,7 @@ cargo test --lib adapters::telegram
 cargo test --lib adapters
 cargo test --lib gateway::core
 cargo test --lib gateway::scheduler
+cargo test --lib gateway::health
 cargo test --lib logging
 ```
 
@@ -61,6 +62,7 @@ src/
 │   ├── claude_cli.rs        # call_claude(), model aliasing, arg assembly
 │   ├── commands.rs          # 9 slash commands, parse_command(), dispatch_command()
 │   ├── skills.rs            # SkillRegistry, frontmatter parsing from .claude/skills/*.md
+│   ├── health.rs            # HealthServer (HTTP health endpoint, runtime metrics)
 │   ├── heartbeat.rs         # HeartbeatRunner (periodic monitoring loop, log rotation)
 │   ├── scheduler.rs         # TaskScheduler (cron-based task execution, per-task logging)
 │   ├── history.rs           # HistoryWriter (daily transcripts, search)
@@ -195,6 +197,27 @@ tasks:
 - **Notifications:** When `notify` is configured, success results are sent to the specified platform/chat. Failure notifications only send when `on_failure: notify` (default is `log`).
 - **Per-task logging:** Each task gets its own log file in `job_log_dir` with size-based rotation.
 - **Cron format:** Standard 5-field — `minute hour day month day_of_week`. Validated at startup.
+
+## Health Endpoint
+
+Stubert exposes an HTTP health endpoint at `GET /health` on the configured port (default 8484). The endpoint returns JSON with runtime metrics:
+
+```json
+{
+  "status": "ok",
+  "uptime_seconds": 3600,
+  "active_sessions": 2,
+  "inflight_calls": 1,
+  "last_heartbeat": "2026-02-23T12:00:00+00:00",
+  "last_cron_execution": "2026-02-23T11:30:00+00:00"
+}
+```
+
+- **`active_sessions`** — number of tracked conversation sessions
+- **`inflight_calls`** — sessions currently waiting on a Claude CLI response
+- **`last_heartbeat`** / **`last_cron_execution`** — ISO 8601 timestamps of the most recent successful execution, or `null` if none yet
+
+Useful for Docker HEALTHCHECK, uptime monitors, and NixOS service checks.
 
 ## Docker
 

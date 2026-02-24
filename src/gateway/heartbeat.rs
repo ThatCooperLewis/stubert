@@ -300,6 +300,10 @@ impl HeartbeatTrigger for HeartbeatRunner {
     fn is_running(&self) -> bool {
         self.lock.try_lock().is_err()
     }
+
+    fn last_execution(&self) -> Option<Instant> {
+        *self.last_execution.lock().unwrap()
+    }
 }
 
 // ---- Tests ----

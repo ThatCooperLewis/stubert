@@ -40,6 +40,7 @@ const MODEL_ALIASES: &[&str] = &["sonnet", "opus", "haiku"];
 pub trait HeartbeatTrigger: Send + Sync {
     async fn trigger(&self) -> Result<String, String>;
     fn is_running(&self) -> bool;
+    fn last_execution(&self) -> Option<std::time::Instant>;
 }
 
 // ---- Command Parsing ----
