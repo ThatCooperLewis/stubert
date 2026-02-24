@@ -35,6 +35,7 @@ cargo test --lib gateway::heartbeat
 cargo test --lib adapters::telegram
 cargo test --lib adapters
 cargo test --lib gateway::core
+cargo test --lib gateway::scheduler
 cargo test --lib logging
 ```
 
@@ -61,6 +62,7 @@ src/
 │   ├── commands.rs          # 9 slash commands, parse_command(), dispatch_command()
 │   ├── skills.rs            # SkillRegistry, frontmatter parsing from .claude/skills/*.md
 │   ├── heartbeat.rs         # HeartbeatRunner (periodic monitoring loop, log rotation)
+│   ├── scheduler.rs         # TaskScheduler (cron-based task execution, per-task logging)
 │   ├── history.rs           # HistoryWriter (daily transcripts, search)
 │   └── session.rs           # Session + SessionManager (message queue, persistence, inactivity timers)
 └── logging.rs               # setup_logging(), TelegramTransientFilter
@@ -113,6 +115,12 @@ heartbeat:
 
 health:
   port: 8484
+
+scheduler:                              # optional
+  schedules_file: "schedules.yaml"
+  job_log_dir: "logs/cron"              # optional, default "logs/cron"
+  job_log_max_bytes: 5242880            # optional, default 5MB
+  job_log_backup_count: 3              # optional, default 3
 ```
 
 ## Slash Commands
@@ -159,6 +167,34 @@ The heartbeat system runs a periodic monitoring loop. Every `interval_minutes`, 
 - **Manual trigger:** `/heartbeat` runs an immediate check outside the normal schedule.
 - **Logging:** When `log_file` is configured, results are appended with timestamps and status (`OK`/`FAIL`/`SKIPPED`). Log rotation shifts files when `log_max_bytes` is exceeded, keeping up to `log_backup_count` backups.
 - **`allowed_tools`:** Controls which tools the heartbeat session can use. Defaults to read-only tools (`Bash(read-only)`, `Read`, `Glob`, `Grep`).
+
+## Scheduler
+
+The scheduler runs statically defined tasks on cron schedules. Tasks are defined in `schedules.yaml`:
+
+```yaml
+tasks:
+  morning-summary:
+    schedule: "0 8 * * *"
+    prompt: "Summarize any notable system events from the last 24 hours."
+    allowed_tools: ["Bash(read-only)", "Read", "Glob", "Grep"]
+    on_failure: notify
+    notify:
+      platform: telegram
+      chat_id: "123456789"
+
+  weekly-cleanup:
+    schedule: "0 3 * * 0"
+    prompt: "Check disk usage and report any directories over 1GB in /tmp."
+    allowed_tools: ["Bash(read-only)", "Read"]
+    add_dirs: ["/tmp"]
+```
+
+- **Ephemeral sessions:** Each execution gets a fresh UUID (never resumed).
+- **Concurrency control:** Max 1 concurrent instance per task — overlapping triggers are skipped.
+- **Notifications:** When `notify` is configured, success results are sent to the specified platform/chat. Failure notifications only send when `on_failure: notify` (default is `log`).
+- **Per-task logging:** Each task gets its own log file in `job_log_dir` with size-based rotation.
+- **Cron format:** Standard 5-field — `minute hour day month day_of_week`. Validated at startup.
 
 ## Docker
 

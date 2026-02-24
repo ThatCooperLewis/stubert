@@ -95,6 +95,16 @@ pub struct HealthConfig {
 #[derive(Debug, Clone, Deserialize)]
 pub struct SchedulerConfig {
     pub schedules_file: String,
+    #[serde(default = "default_job_log_dir")]
+    pub job_log_dir: String,
+    #[serde(default)]
+    pub job_log_max_bytes: Option<u64>,
+    #[serde(default)]
+    pub job_log_backup_count: Option<u32>,
+}
+
+fn default_job_log_dir() -> String {
+    "logs/cron".to_string()
 }
 
 #[derive(Debug, Clone, Deserialize)]

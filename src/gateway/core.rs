@@ -16,6 +16,7 @@ use crate::config::types::StubbertConfig;
 use crate::gateway::claude_cli::{call_claude, ClaudeCallParams, ClaudeError, ClaudeResponse};
 use crate::gateway::commands::{dispatch_command, parse_command, HeartbeatTrigger};
 use crate::gateway::history::HistoryWriter;
+use crate::gateway::scheduler::{load_schedules, TaskScheduler};
 use crate::gateway::session::SessionManager;
 use crate::gateway::skills::SkillRegistry;
 
@@ -643,6 +644,7 @@ pub struct Gateway {
     running: Arc<AtomicBool>,
     skill_registry: Arc<SkillRegistry>,
     heartbeat_trigger: Option<Arc<dyn HeartbeatTrigger>>,
+    scheduler: Option<Arc<TaskScheduler>>,
 }
 
 impl Gateway {
@@ -670,6 +672,7 @@ impl Gateway {
             running: Arc::new(AtomicBool::new(false)),
             skill_registry: Arc::new(skill_registry),
             heartbeat_trigger,
+            scheduler: None,
         }
     }
 
@@ -730,6 +733,33 @@ impl Gateway {
             }
         }
 
+        // Start scheduler if configured
+        if let Some(sched_config) = &self.config.scheduler {
+            let schedules_path = PathBuf::from(&self.config.claude.working_directory)
+                .join(&sched_config.schedules_file);
+            match load_schedules(&schedules_path) {
+                Ok(tasks) if !tasks.is_empty() => {
+                    match TaskScheduler::new(
+                        tasks,
+                        sched_config,
+                        &self.config.claude,
+                        Arc::clone(&self.claude_caller),
+                        Arc::clone(&self.adapters),
+                    ) {
+                        Ok(scheduler) => {
+                            let scheduler = Arc::new(scheduler);
+                            scheduler.start();
+                            self.scheduler = Some(scheduler);
+                            tracing::info!("scheduler started");
+                        }
+                        Err(e) => tracing::error!(error = %e, "failed to create scheduler"),
+                    }
+                }
+                Ok(_) => tracing::info!("no scheduled tasks configured"),
+                Err(e) => tracing::warn!(error = %e, "failed to load schedules"),
+            }
+        }
+
         // Post restart greeting
         let working_dir = PathBuf::from(&self.config.claude.working_directory);
         handle_restart_greeting(&working_dir, &self.adapters, &self.claude_caller, &self.config)
@@ -741,6 +771,11 @@ impl Gateway {
 
     pub async fn shutdown(&mut self) {
         self.running.store(false, Ordering::SeqCst);
+
+        // Stop scheduler
+        if let Some(scheduler) = &self.scheduler {
+            scheduler.stop();
+        }
 
         // Send restart message to currently processing sessions
         {
