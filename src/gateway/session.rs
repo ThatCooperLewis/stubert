@@ -76,20 +76,8 @@ impl Session {
         self.message_rx.take()
     }
 
-    pub async fn drain_queue(rx: &mut mpsc::UnboundedReceiver<String>) -> Option<String> {
-        let first = rx.recv().await?;
-        let mut messages = vec![first];
-        while let Ok(msg) = rx.try_recv() {
-            messages.push(msg);
-        }
-        if messages.len() == 1 {
-            Some(messages.pop().unwrap())
-        } else {
-            Some(format!(
-                "Batched messages from user:\n{}",
-                messages.join("\n")
-            ))
-        }
+    pub fn return_rx(&mut self, rx: mpsc::UnboundedReceiver<String>) {
+        self.message_rx = Some(rx);
     }
 }
 
@@ -143,6 +131,18 @@ impl SessionManager {
 
     pub fn active_session_count(&self) -> usize {
         self.sessions.len()
+    }
+
+    pub fn processing_sessions(&self) -> Vec<(String, String)> {
+        self.sessions
+            .iter()
+            .filter(|(_, s)| s.processing)
+            .filter_map(|(key, s)| {
+                let prefix = format!("{}-", s.platform);
+                let chat_id = key.strip_prefix(&prefix)?;
+                Some((s.platform.clone(), chat_id.to_string()))
+            })
+            .collect()
     }
 
     pub fn save(&self) -> Result<(), io::Error> {
@@ -293,28 +293,6 @@ mod tests {
             assert_eq!(msg, "hello");
         }
 
-        #[tokio::test]
-        async fn single_message_returns_plain_text() {
-            let mut session = make_session();
-            let mut rx = session.take_rx().unwrap();
-            session.enqueue("hello".to_string());
-            let result = Session::drain_queue(&mut rx).await.unwrap();
-            assert_eq!(result, "hello");
-        }
-
-        #[tokio::test]
-        async fn multiple_messages_batched_with_prefix() {
-            let mut session = make_session();
-            let mut rx = session.take_rx().unwrap();
-            session.enqueue("first".to_string());
-            session.enqueue("second".to_string());
-            session.enqueue("third".to_string());
-            let result = Session::drain_queue(&mut rx).await.unwrap();
-            assert_eq!(
-                result,
-                "Batched messages from user:\nfirst\nsecond\nthird"
-            );
-        }
     }
 
     mod test_session_manager {
@@ -559,14 +537,6 @@ mod tests {
             let mut session = make_session();
             assert!(session.take_rx().is_some());
             assert!(session.take_rx().is_none());
-        }
-
-        #[tokio::test]
-        async fn drain_queue_returns_none_on_closed_channel() {
-            let mut session = make_session();
-            let mut rx = session.take_rx().unwrap();
-            drop(session); // drops the sender
-            assert!(Session::drain_queue(&mut rx).await.is_none());
         }
 
         #[test]

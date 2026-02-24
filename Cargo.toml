@@ -25,3 +25,4 @@ serenity = { version = "0.12", default-features = false, features = ["rustls_bac
 tempfile = "3"
 mockall = "0.13"
 tokio = { version = "1", features = ["full", "test-util"] }
+filetime = "0.2.27"

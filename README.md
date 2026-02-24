@@ -31,6 +31,7 @@ cargo test --lib gateway::session
 cargo test --lib gateway::history
 cargo test --lib adapters::telegram
 cargo test --lib adapters
+cargo test --lib gateway::core
 cargo test --lib logging
 ```
 
@@ -51,6 +52,7 @@ src/
 │   └── sanitize.rs          # sanitize_filename() (path stripping, collision resolution)
 ├── gateway/
 │   ├── mod.rs               # Module declarations
+│   ├── core.rs              # Gateway orchestrator, message routing, consumer loop, lifecycle
 │   ├── claude_cli.rs        # call_claude(), model aliasing, arg assembly
 │   ├── history.rs           # HistoryWriter (daily transcripts, search)
 │   └── session.rs           # Session + SessionManager (message queue, persistence, inactivity timers)
