@@ -876,6 +876,7 @@ mod tests {
             heartbeat: HeartbeatConfig {
                 interval_minutes: 5,
                 file: "HEARTBEAT.md".to_string(),
+                allowed_tools: vec![],
                 log_file: None,
                 log_max_bytes: None,
                 log_backup_count: None,

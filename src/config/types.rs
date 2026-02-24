@@ -68,12 +68,23 @@ pub struct LoggingConfig {
 pub struct HeartbeatConfig {
     pub interval_minutes: u64,
     pub file: String,
+    #[serde(default = "default_heartbeat_tools")]
+    pub allowed_tools: Vec<String>,
     #[serde(default)]
     pub log_file: Option<String>,
     #[serde(default)]
     pub log_max_bytes: Option<u64>,
     #[serde(default)]
     pub log_backup_count: Option<u32>,
+}
+
+fn default_heartbeat_tools() -> Vec<String> {
+    vec![
+        "Bash(read-only)".into(),
+        "Read".into(),
+        "Glob".into(),
+        "Grep".into(),
+    ]
 }
 
 #[derive(Debug, Clone, Deserialize)]

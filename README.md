@@ -31,6 +31,7 @@ cargo test --lib gateway::session
 cargo test --lib gateway::history
 cargo test --lib gateway::commands
 cargo test --lib gateway::skills
+cargo test --lib gateway::heartbeat
 cargo test --lib adapters::telegram
 cargo test --lib adapters
 cargo test --lib gateway::core
@@ -59,6 +60,7 @@ src/
 │   ├── claude_cli.rs        # call_claude(), model aliasing, arg assembly
 │   ├── commands.rs          # 9 slash commands, parse_command(), dispatch_command()
 │   ├── skills.rs            # SkillRegistry, frontmatter parsing from .claude/skills/*.md
+│   ├── heartbeat.rs         # HeartbeatRunner (periodic monitoring loop, log rotation)
 │   ├── history.rs           # HistoryWriter (daily transcripts, search)
 │   └── session.rs           # Session + SessionManager (message queue, persistence, inactivity timers)
 └── logging.rs               # setup_logging(), TelegramTransientFilter
@@ -104,6 +106,10 @@ logging:
 heartbeat:
   interval_minutes: 30
   file: "HEARTBEAT.md"
+  allowed_tools: ["Bash(read-only)", "Read", "Glob", "Grep"]
+  log_file: "logs/heartbeat.log"    # optional
+  log_max_bytes: 5000000            # optional, default 5MB
+  log_backup_count: 3               # optional, default 3
 
 health:
   port: 8484
@@ -144,6 +150,15 @@ Create a Trello card with the given details.
 - `description` — shown when listing skills with `/skill`
 - `allowed_tools` — overrides platform default tools for this skill
 - `add_dirs` — additional directories to pass to Claude CLI
+
+## Heartbeat
+
+The heartbeat system runs a periodic monitoring loop. Every `interval_minutes`, Stubert reads the `HEARTBEAT.md` file, filters out `#` comment lines and blank lines, and sends the remaining text as a prompt to an ephemeral Claude CLI session. Each execution gets a fresh UUID session (never resumed).
+
+- **Overlap protection:** If a previous heartbeat is still running, the tick is skipped.
+- **Manual trigger:** `/heartbeat` runs an immediate check outside the normal schedule.
+- **Logging:** When `log_file` is configured, results are appended with timestamps and status (`OK`/`FAIL`/`SKIPPED`). Log rotation shifts files when `log_max_bytes` is exceeded, keeping up to `log_backup_count` backups.
+- **`allowed_tools`:** Controls which tools the heartbeat session can use. Defaults to read-only tools (`Bash(read-only)`, `Read`, `Glob`, `Grep`).
 
 ## Docker
 
