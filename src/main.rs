@@ -30,6 +30,8 @@ async fn main() {
     let runtime_dir = parse_runtime_dir();
     std::env::set_current_dir(&runtime_dir).expect("failed to set working directory");
 
+    dotenvy::dotenv().ok();
+
     let config = load_config(Path::new("config.yaml")).expect("failed to load config");
 
     setup_logging(&config.logging).expect("failed to setup logging");

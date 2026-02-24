@@ -6,96 +6,205 @@ Openclaw-inspired agent manager.
 - Uses your Claude Code subscription without breaking ToS
 - Doesn't try to reinvent the wheel (uses built-in Claude features rather than rewriting them)
 
-## Prerequisites
+## Getting Started
 
-- Rust toolchain (rustc, cargo)
-- A C compiler (`gcc`) and `pkg-config`
-- Optional: `clippy` (`rustup component add clippy`)
+A step-by-step guide from zero to a running Stubert instance in Docker.
 
-## Build
+### 1. Clone the repository
 
 ```bash
-cargo build
+git clone <repo-url> stubert
+cd stubert
 ```
 
-## Test
+### 2. Create your runtime directory
+
+The runtime directory holds all configuration, memory files, logs, and session state. It gets mounted into the container as `/data`.
 
 ```bash
-# Run all unit + integration tests
-cargo test
+mkdir -p config/.claude/skills config/history config/logs
+```
 
-# Run tests for a specific module
-cargo test --lib config
-cargo test --lib gateway::claude_cli
-cargo test --lib gateway::session
-cargo test --lib gateway::history
-cargo test --lib gateway::commands
-cargo test --lib gateway::skills
-cargo test --lib gateway::heartbeat
-cargo test --lib adapters::telegram
-cargo test --lib adapters
-cargo test --lib gateway::core
-cargo test --lib gateway::scheduler
-cargo test --lib gateway::health
-cargo test --lib logging
+### 3. Configure
+
+Copy the example config and edit it with your values:
+
+```bash
+cp example-config/config.yaml config/config.yaml
+cp example-config/HEARTBEAT.md config/HEARTBEAT.md
+```
+
+Create a `.env` file with your bot tokens:
+
+```bash
+cat > config/.env << 'EOF'
+TELEGRAM_BOT_TOKEN=your-telegram-token-here
+DISCORD_BOT_TOKEN=your-discord-token-here
+EOF
+```
+
+Edit `config/config.yaml` to set your `allowed_users` lists (Telegram/Discord user IDs that are permitted to interact with the bot) and adjust any other settings. See the [Configuration Reference](#configuration-reference) below for all options.
+
+### 4. Set up Claude context files
+
+Stubert sets its working directory to the runtime directory, so the Claude CLI reads context files from there. At minimum, create a `CLAUDE.md`:
+
+```bash
+cat > config/CLAUDE.md << 'EOF'
+# Agent Instructions
+
+You are a helpful assistant managed by Stubert.
+EOF
+```
+
+Optional additional context files (Claude CLI reads these if they exist):
+- `SOUL.md` — personality and behavioral guidelines
+- `USER.md` — information about the user
+- `MEMORY.md` — persistent memory across sessions
+
+You can use `@import` in `CLAUDE.md` to chain these files together.
+
+### 5. Build the Docker image
+
+This compiles all Rust dependencies into a cached image layer. You only need to rebuild when `Cargo.toml` or `Cargo.lock` change.
+
+```bash
+docker build -t stubert:local .
+```
+
+### 6. Authenticate Claude Code
+
+The container needs access to your Claude Code authentication. If you already have Claude Code authenticated on your host machine, skip to step 7 — your `~/.claude` and `~/.claude.json` will be mounted directly.
+
+If you need to authenticate from scratch:
+
+```bash
+docker run --rm -it \
+  -v "$HOME/.claude":/root/.claude \
+  -v "$HOME/.claude.json":/root/.claude.json \
+  stubert:local claude login
+```
+
+### 7. Run the service
+
+```bash
+docker run -d --name stubert \
+  --network=host \
+  -v ./src:/app/src \
+  -v ./config:/data \
+  -v "$HOME/.claude":/root/.claude \
+  -v "$HOME/.claude.json":/root/.claude.json \
+  stubert:local
+```
+
+The container compiles the source from the mounted `src/` on startup (a few seconds since dependencies are pre-compiled in the image), then starts the service.
+
+### 8. Verify
+
+```bash
+# Check container status
+docker logs stubert
+
+# Check health endpoint
+curl http://localhost:8484/health
+```
+
+You should see a JSON response like:
+
+```json
+{
+  "status": "ok",
+  "uptime_seconds": 12,
+  "active_sessions": 0,
+  "inflight_calls": 0,
+  "last_heartbeat": null,
+  "last_cron_execution": null
+}
+```
+
+Send a message to your bot on Telegram or Discord to confirm it responds.
+
+### Restarting after code changes
+
+Source changes only require a container restart — no image rebuild:
+
+```bash
+docker restart stubert
+```
+
+Dependency changes (`Cargo.toml`/`Cargo.lock`) require an image rebuild:
+
+```bash
+docker build -t stubert:local .
+docker rm -f stubert
+# Re-run the docker run command from step 7
+```
+
+## Running Tests
+
+```bash
+# All unit + integration tests
+docker run --rm -v ./src:/app/src -v ./tests:/app/tests stubert:local test
+
+# Specific module
+docker run --rm -v ./src:/app/src stubert:local test --lib gateway::session
 
 # Integration tests (mocked Claude CLI, full Gateway pipeline)
-cargo test --test gateway_integration
+docker run --rm -v ./src:/app/src -v ./tests:/app/tests stubert:local test --test gateway_integration
 
-# Live tests (real Claude CLI, requires auth)
+# Live CLI tests (real Claude CLI, needs auth mounts)
+docker run --rm \
+  -v ./src:/app/src \
+  -v ./tests:/app/tests \
+  -v "$HOME/.claude":/root/.claude \
+  -v "$HOME/.claude.json":/root/.claude.json \
+  stubert:local test --test live_cli -- --ignored
+```
+
+If you have a local Rust toolchain, you can also run tests directly:
+
+```bash
+cargo test
+cargo test --test gateway_integration
 cargo test --test live_cli -- --ignored
 ```
 
-## Project Structure
+## Slash Commands
 
-```
-src/
-├── main.rs                  # Entry point
-├── lib.rs                   # Module declarations
-├── config/
-│   ├── mod.rs               # load_config(), env var interpolation
-│   └── types.rs             # Config structs (StubbertConfig + sub-configs)
-├── adapters/
-│   ├── mod.rs               # PlatformAdapter trait, IncomingMessage, AdapterError
-│   ├── telegram.rs          # TelegramAdapter (teloxide long-polling, media downloads)
-│   ├── discord.rs           # DiscordAdapter (serenity WebSocket, slash commands, media)
-│   ├── markdown.rs          # to_telegram() (MarkdownV2), to_discord()
-│   ├── message_split.rs     # split_message() (code-block-aware chunking)
-│   └── sanitize.rs          # sanitize_filename() (path stripping, collision resolution)
-├── gateway/
-│   ├── mod.rs               # Module declarations
-│   ├── core.rs              # Gateway orchestrator, message routing, consumer loop, lifecycle
-│   ├── claude_cli.rs        # call_claude(), model aliasing, arg assembly
-│   ├── commands.rs          # 9 slash commands, parse_command(), dispatch_command()
-│   ├── skills.rs            # SkillRegistry, frontmatter parsing from .claude/skills/*.md
-│   ├── health.rs            # HealthServer (HTTP health endpoint, runtime metrics)
-│   ├── heartbeat.rs         # HeartbeatRunner (periodic monitoring loop, log rotation)
-│   ├── scheduler.rs         # TaskScheduler (cron-based task execution, per-task logging)
-│   ├── history.rs           # HistoryWriter (daily transcripts, search)
-│   └── session.rs           # Session + SessionManager (message queue, persistence, inactivity timers)
-└── logging.rs               # setup_logging(), TelegramTransientFilter
-```
+| Command | Description |
+|---------|-------------|
+| `/new` | Start a fresh session |
+| `/context` | Check context window usage |
+| `/restart` | Restart the bot |
+| `/models [alias]` | List or switch models (sonnet, opus, haiku) |
+| `/skill [name] [args]` | List or invoke a skill |
+| `/history <query>` | Search conversation history |
+| `/status` | Show bot status (uptime, sessions, model) |
+| `/heartbeat` | Trigger a heartbeat check |
+| `/help` | Show command listing |
 
-## Configuration
+## Configuration Reference
 
-Stubert loads config from a YAML file with `${ENV_VAR}` interpolation:
+Stubert loads config from `config.yaml` with `${ENV_VAR}` interpolation. See `example-config/config.yaml` for a fully annotated template.
 
 ```yaml
 telegram:
   token: "${TELEGRAM_BOT_TOKEN}"
-  allowed_users: [123456789]
+  allowed_users: [123456789]          # Telegram user IDs
+  # unauthorized_response: "Not authorized."
 
 discord:
   token: "${DISCORD_BOT_TOKEN}"
-  allowed_users: [987654321]
+  allowed_users: [987654321]          # Discord user IDs
+  # unauthorized_response: "Not authorized."
 
 claude:
-  cli_path: "claude"
-  timeout_secs: 300
-  default_model: "sonnet"
-  working_directory: "."
+  cli_path: "claude"                  # Path to Claude CLI binary
+  timeout_secs: 300                   # Max seconds per invocation
+  default_model: "sonnet"             # sonnet, opus, haiku, or full model ID
+  working_directory: "."              # Relative to runtime dir
   env_file_path: ".env"
-  allowed_tools:
+  allowed_tools:                      # Per-platform tool allowlists
     telegram: ["Bash", "Read", "Write", "Edit", "Glob", "Grep"]
     discord: ["Read"]
   add_dirs: []
@@ -117,37 +226,23 @@ heartbeat:
   interval_minutes: 30
   file: "HEARTBEAT.md"
   allowed_tools: ["Bash(read-only)", "Read", "Glob", "Grep"]
-  log_file: "logs/heartbeat.log"    # optional
-  log_max_bytes: 5000000            # optional, default 5MB
-  log_backup_count: 3               # optional, default 3
+  # log_file: "logs/heartbeat.log"
+  # log_max_bytes: 5000000
+  # log_backup_count: 3
 
 health:
   port: 8484
 
-scheduler:                              # optional
-  schedules_file: "schedules.yaml"
-  job_log_dir: "logs/cron"              # optional, default "logs/cron"
-  job_log_max_bytes: 5242880            # optional, default 5MB
-  job_log_backup_count: 3              # optional, default 3
+# scheduler:                            # optional
+#   schedules_file: "schedules.yaml"
+#   job_log_dir: "logs/cron"
+#   job_log_max_bytes: 5242880
+#   job_log_backup_count: 3
 ```
-
-## Slash Commands
-
-| Command | Description |
-|---------|-------------|
-| `/new` | Start a fresh session |
-| `/context` | Check context window usage |
-| `/restart` | Restart the bot |
-| `/models [alias]` | List or switch models (sonnet, opus, haiku) |
-| `/skill [name] [args]` | List or invoke a skill |
-| `/history <query>` | Search conversation history |
-| `/status` | Show bot status (uptime, sessions, model) |
-| `/heartbeat` | Trigger a heartbeat check |
-| `/help` | Show command listing |
 
 ## Skills
 
-Skills are prompt templates discovered from `.claude/skills/*.md` files. Each file uses YAML frontmatter:
+Skills are prompt templates discovered from `.claude/skills/*.md` files in the runtime directory. Each file uses YAML frontmatter:
 
 ```markdown
 ---
@@ -223,48 +318,34 @@ Stubert exposes an HTTP health endpoint at `GET /health` on the configured port 
 - **`inflight_calls`** — sessions currently waiting on a Claude CLI response
 - **`last_heartbeat`** / **`last_cron_execution`** — ISO 8601 timestamps of the most recent successful execution, or `null` if none yet
 
-Useful for Docker HEALTHCHECK, uptime monitors, and NixOS service checks.
+## Docker Details
 
-## Example Config
+The image contains the Rust toolchain and pre-compiled dependencies but not the application source — `src/` is mounted at runtime. Code changes only require a container restart, not an image rebuild.
 
-See `example-config/` for annotated configuration templates:
+### Volume mounts
 
-- `config.yaml` — full config with `${ENV_VAR}` placeholders and comments for every field
-- `schedules.yaml` — example cron task definitions
-- `HEARTBEAT.md` — example heartbeat instructions
+| Host Path | Container Path | Purpose |
+|-----------|---------------|---------|
+| `./src` | `/app/src` | Live source code (compiled on startup) |
+| `./config` | `/data` | Runtime directory (config, memory, history, logs, sessions) |
+| `$HOME/.claude` | `/root/.claude` | Claude Code authentication token |
+| `$HOME/.claude.json` | `/root/.claude.json` | Claude Code authentication metadata |
 
-## Whisper Transcription
+### Entrypoint modes
 
-Audio transcription via Whisper is structurally supported (the `Transcriber` trait and prompt-building pipeline handle audio paths) but the runtime implementation is deferred. Voice messages are currently ignored unless a custom `Transcriber` implementation is provided.
+| Command | What It Does |
+|---------|-------------|
+| `docker run stubert:local` | Start the service (default: `serve`) |
+| `docker run stubert:local test` | Run all tests |
+| `docker run stubert:local test --lib gateway::session` | Run specific test module |
+| `docker run stubert:local bash` | Interactive shell |
 
-## Docker
+### Networking
 
-Stubert runs in Docker. The image contains the Rust toolchain and pre-compiled dependencies but not the application source — `src/` is mounted at runtime. Code changes only require a container restart, not an image rebuild.
+The health endpoint listens on port 8484. With `--network=host` (recommended for production), no port mapping is needed. For development without host networking:
 
 ```bash
-# Build image (only needed when Cargo.toml/Cargo.lock change)
-docker build -t stubert:local .
-
-# Run all unit tests
-docker run --rm -v ./src:/app/src stubert:local test
-
-# Run a specific test
-docker run --rm -v ./src:/app/src stubert:local test --test test_session
-
-# Run integration tests (mount tests/ alongside src/)
-docker run --rm -v ./src:/app/src -v ./tests:/app/tests \
-  stubert:local test --test gateway_integration
-
-# Run live CLI tests (real Claude CLI, needs auth mounts)
-docker run --rm \
-  -v ./src:/app/src \
-  -v ./tests:/app/tests \
-  -v "$HOME/.claude":/root/.claude \
-  -v "$HOME/.claude.json":/root/.claude.json \
-  stubert:local test --test live_cli -- --ignored
-
-# Start the service
-docker run --rm \
+docker run --rm -p 8484:8484 \
   -v ./src:/app/src \
   -v ./config:/data \
   -v "$HOME/.claude":/root/.claude \
@@ -272,4 +353,50 @@ docker run --rm \
   stubert:local
 ```
 
-See `design-docs/docker.md` for full details on volumes, networking, and NixOS deployment.
+See `design-docs/docker.md` for full details on build caching, rootless Docker, and NixOS deployment.
+
+## Project Structure
+
+```
+src/
+├── main.rs                  # Entry point
+├── lib.rs                   # Module declarations
+├── config/
+│   ├── mod.rs               # load_config(), env var interpolation
+│   └── types.rs             # Config structs (StubbertConfig + sub-configs)
+├── adapters/
+│   ├── mod.rs               # PlatformAdapter trait, IncomingMessage, AdapterError
+│   ├── telegram.rs          # TelegramAdapter (teloxide long-polling, media downloads)
+│   ├── discord.rs           # DiscordAdapter (serenity WebSocket, slash commands, media)
+│   ├── markdown.rs          # to_telegram() (MarkdownV2), to_discord()
+│   ├── message_split.rs     # split_message() (code-block-aware chunking)
+│   └── sanitize.rs          # sanitize_filename() (path stripping, collision resolution)
+├── gateway/
+│   ├── mod.rs               # Module declarations
+│   ├── core.rs              # Gateway orchestrator, message routing, consumer loop, lifecycle
+│   ├── claude_cli.rs        # call_claude(), model aliasing, arg assembly
+│   ├── commands.rs          # 9 slash commands, parse_command(), dispatch_command()
+│   ├── skills.rs            # SkillRegistry, frontmatter parsing from .claude/skills/*.md
+│   ├── health.rs            # HealthServer (HTTP health endpoint, runtime metrics)
+│   ├── heartbeat.rs         # HeartbeatRunner (periodic monitoring loop, log rotation)
+│   ├── scheduler.rs         # TaskScheduler (cron-based task execution, per-task logging)
+│   ├── history.rs           # HistoryWriter (daily transcripts, search)
+│   └── session.rs           # Session + SessionManager (message queue, persistence, inactivity timers)
+└── logging.rs               # setup_logging(), TelegramTransientFilter
+```
+
+## Local Development
+
+If you have a local Rust toolchain, you can build and test without Docker:
+
+### Prerequisites
+
+- Rust toolchain (rustc, cargo)
+- A C compiler (`gcc`) and `pkg-config`
+
+### Build & test
+
+```bash
+cargo build
+cargo test
+```

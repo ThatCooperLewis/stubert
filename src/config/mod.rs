@@ -230,6 +230,28 @@ health:
     }
 
     #[test]
+    fn dotenvy_loads_env_file_for_interpolation() {
+        let dir = tempfile::tempdir().unwrap();
+
+        // Write .env file
+        let env_path = dir.path().join(".env");
+        std::fs::write(&env_path, "STUBERT_DOTENV_TEST_TOKEN=from-dotenv\n").unwrap();
+
+        // Write config.yaml that references the env var
+        let yaml = full_config_yaml().replace("tg-token-123", "${STUBERT_DOTENV_TEST_TOKEN}");
+        let config_path = dir.path().join("config.yaml");
+        std::fs::write(&config_path, &yaml).unwrap();
+
+        // Load .env from the specific path (avoids CWD side effects in tests)
+        dotenvy::from_path(&env_path).unwrap();
+
+        let config = load_config(&config_path).unwrap();
+        assert_eq!(config.telegram.token, "from-dotenv");
+
+        std::env::remove_var("STUBERT_DOTENV_TEST_TOKEN");
+    }
+
+    #[test]
     fn errors_on_missing_required_fields() {
         let f = write_config("telegram:\n  token: x\n");
         let err = load_config(f.path()).unwrap_err();
