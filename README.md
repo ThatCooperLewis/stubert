@@ -21,7 +21,7 @@ cargo build
 ## Test
 
 ```bash
-# Run all unit tests
+# Run all unit + integration tests
 cargo test
 
 # Run tests for a specific module
@@ -38,6 +38,12 @@ cargo test --lib gateway::core
 cargo test --lib gateway::scheduler
 cargo test --lib gateway::health
 cargo test --lib logging
+
+# Integration tests (mocked Claude CLI, full Gateway pipeline)
+cargo test --test gateway_integration
+
+# Live tests (real Claude CLI, requires auth)
+cargo test --test live_cli -- --ignored
 ```
 
 ## Project Structure
@@ -219,6 +225,18 @@ Stubert exposes an HTTP health endpoint at `GET /health` on the configured port 
 
 Useful for Docker HEALTHCHECK, uptime monitors, and NixOS service checks.
 
+## Example Config
+
+See `example-config/` for annotated configuration templates:
+
+- `config.yaml` — full config with `${ENV_VAR}` placeholders and comments for every field
+- `schedules.yaml` — example cron task definitions
+- `HEARTBEAT.md` — example heartbeat instructions
+
+## Whisper Transcription
+
+Audio transcription via Whisper is structurally supported (the `Transcriber` trait and prompt-building pipeline handle audio paths) but the runtime implementation is deferred. Voice messages are currently ignored unless a custom `Transcriber` implementation is provided.
+
 ## Docker
 
 Stubert runs in Docker. The image contains the Rust toolchain and pre-compiled dependencies but not the application source — `src/` is mounted at runtime. Code changes only require a container restart, not an image rebuild.
@@ -233,12 +251,17 @@ docker run --rm -v ./src:/app/src stubert:local test
 # Run a specific test
 docker run --rm -v ./src:/app/src stubert:local test --test test_session
 
-# Run live integration tests (real Claude CLI, needs auth mounts)
+# Run integration tests (mount tests/ alongside src/)
+docker run --rm -v ./src:/app/src -v ./tests:/app/tests \
+  stubert:local test --test gateway_integration
+
+# Run live CLI tests (real Claude CLI, needs auth mounts)
 docker run --rm \
   -v ./src:/app/src \
+  -v ./tests:/app/tests \
   -v "$HOME/.claude":/root/.claude \
   -v "$HOME/.claude.json":/root/.claude.json \
-  stubert:local test --test live
+  stubert:local test --test live_cli -- --ignored
 
 # Start the service
 docker run --rm \

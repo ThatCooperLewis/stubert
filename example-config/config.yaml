@@ -1,0 +1,80 @@
+# Stubert Configuration
+# Copy this file to your runtime directory and adjust values.
+# Environment variables are interpolated: ${VAR_NAME}
+
+# --- Platform Adapters ---
+
+telegram:
+  token: "${TELEGRAM_BOT_TOKEN}"
+  allowed_users: [123456789]          # Telegram user IDs allowed to interact
+  # unauthorized_response: "Not authorized."  # Optional message sent to unauthorized users
+
+discord:
+  token: "${DISCORD_BOT_TOKEN}"
+  allowed_users: [987654321]          # Discord user IDs allowed to interact
+  # unauthorized_response: "Not authorized."
+
+# --- Claude CLI ---
+
+claude:
+  cli_path: "claude"                  # Path to the Claude CLI binary
+  timeout_secs: 300                   # Max seconds per CLI invocation
+  default_model: "sonnet"             # Model alias: sonnet, opus, haiku, or full model ID
+  working_directory: "."              # Working dir for CLI subprocess (relative to runtime dir)
+  env_file_path: ".env"              # Claude env file path (relative to working_directory)
+  allowed_tools:                      # Per-platform tool allowlists
+    telegram: ["Bash", "Read", "Write", "Edit", "Glob", "Grep"]
+    discord: ["Read"]
+  add_dirs: []                        # Additional directories to pass to CLI via --add-dir
+
+# --- Sessions ---
+
+sessions:
+  timeout_minutes: 60                 # Inactivity timeout before session expires
+  sessions_file: "sessions.json"      # Persisted session state (relative to working_directory)
+
+# --- History ---
+
+history:
+  base_dir: "history"                 # Daily transcript files (relative to working_directory)
+
+# --- Logging ---
+
+logging:
+  log_file: "logs/stubert.log"        # Main log file path
+  log_max_bytes: 10000000             # Log rotation threshold (~10MB)
+  log_backup_count: 5                 # Number of rotated log files to keep
+  level: "INFO"                       # Log level: TRACE, DEBUG, INFO, WARN, ERROR
+
+# --- Heartbeat ---
+
+heartbeat:
+  interval_minutes: 30                # Minutes between heartbeat checks
+  file: "HEARTBEAT.md"               # Heartbeat instructions file (# lines are filtered out)
+  allowed_tools: ["Bash(read-only)", "Read", "Glob", "Grep"]
+  # log_file: "logs/heartbeat.log"   # Optional: heartbeat-specific log
+  # log_max_bytes: 5000000           # Optional: default 5MB
+  # log_backup_count: 3              # Optional: default 3
+
+# --- Health Endpoint ---
+
+health:
+  port: 8484                          # HTTP port for GET /health
+
+# --- Scheduler (optional) ---
+
+# scheduler:
+#   schedules_file: "schedules.yaml"  # Cron task definitions
+#   job_log_dir: "logs/cron"          # Per-task log directory
+#   job_log_max_bytes: 5242880        # Per-task log rotation threshold
+#   job_log_backup_count: 3           # Per-task rotated logs to keep
+
+# --- Files (optional) ---
+
+# files:
+#   cleanup_days: 30                  # Delete submitted files older than N days
+
+# --- Gateway (optional) ---
+
+# gateway:
+#   max_message_length: 4000          # Max characters per outbound message chunk

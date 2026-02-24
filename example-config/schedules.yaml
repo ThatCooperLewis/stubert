@@ -1,0 +1,19 @@
+# Stubert Scheduled Tasks
+# Cron format: minute hour day month day_of_week
+# Each task gets an ephemeral Claude session (never resumed).
+
+tasks:
+  morning-summary:
+    schedule: "0 8 * * *"                 # Daily at 8:00 AM
+    prompt: "Summarize any notable system events from the last 24 hours."
+    allowed_tools: ["Bash(read-only)", "Read", "Glob", "Grep"]
+    on_failure: notify                     # "notify" or "log" (default: log)
+    notify:
+      platform: telegram
+      chat_id: "123456789"
+
+  weekly-cleanup:
+    schedule: "0 3 * * 0"                 # Sundays at 3:00 AM
+    prompt: "Check disk usage and report any directories over 1GB in /tmp."
+    allowed_tools: ["Bash(read-only)", "Read"]
+    add_dirs: ["/tmp"]

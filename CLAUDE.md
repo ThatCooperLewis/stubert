@@ -8,23 +8,27 @@ Stubert is a personal AI agent service written in Rust that bridges messaging pl
 
 ## Build & Test Commands
 
-Until Phase 12 is complete, all development runs through `cargo` locally.
-
 ### Rust
 
 ```bash
 # Build
 cargo build
 
-# Run all unit tests
+# Run all unit + integration tests
 cargo test
 
 # Run tests for a specific module
 cargo test --lib adapters::telegram
 cargo test --lib gateway::session
+
+# Integration tests (mocked Claude CLI)
+cargo test --test gateway_integration
+
+# Live tests (real Claude CLI, requires auth)
+cargo test --test live_cli -- --ignored
 ```
 
-### Docker (Not Yet Implemented)
+### Docker
 
 ```bash
 # Build image (only needed when Cargo.toml/Cargo.lock change)
@@ -36,12 +40,16 @@ docker run --rm -v ./src:/app/src stubert:local test
 # Run a specific test
 docker run --rm -v ./src:/app/src stubert:local test --test test_session
 
-# Run live integration tests (real Claude CLI, needs auth mounts)
+# Run integration tests
+docker run --rm -v ./src:/app/src -v ./tests:/app/tests stubert:local test --test gateway_integration
+
+# Run live CLI tests (real Claude CLI, needs auth mounts)
 docker run --rm \
   -v ./src:/app/src \
+  -v ./tests:/app/tests \
   -v "$HOME/.claude":/root/.claude \
   -v "$HOME/.claude.json":/root/.claude.json \
-  stubert:local test --test live
+  stubert:local test --test live_cli -- --ignored
 
 # Start the service
 docker run --rm \
@@ -82,8 +90,9 @@ stubert/
 │   ├── commands.rs            # 9 slash commands
 │   ├── skills.rs              # Skill discovery from .claude/skills/
 │   ├── health.rs              # HTTP health endpoint (axum, port 8484)
-│   ├── history.rs             # Daily transcript writer + search
-│   └── whisper.rs             # Audio transcription (whisper-rs, spawn_blocking)
+│   ├── heartbeat.rs           # Periodic monitoring loop (reads HEARTBEAT.md)
+│   ├── scheduler.rs           # Cron task execution (schedules.yaml)
+│   └── history.rs             # Daily transcript writer + search
 ├── adapters/
 │   ├── mod.rs                 # PlatformAdapter trait, IncomingMessage
 │   ├── telegram.rs            # teloxide long-polling adapter
@@ -91,8 +100,6 @@ stubert/
 │   ├── markdown.rs            # Platform-specific markdown conversion
 │   ├── message_split.rs       # Code-block-aware message chunking (2000 char limit)
 │   └── sanitize.rs            # Filename sanitization
-├── heartbeat/                 # Periodic monitoring loop (reads HEARTBEAT.md)
-├── scheduler/                 # Cron task execution (schedules.yaml)
 └── logging.rs                 # tracing setup, TelegramTransientFilter
 ```
 
@@ -113,8 +120,6 @@ stubert/
 | `tokio::sync::mpsc` | Per-session message queue |
 | `tokio::sync::Mutex` | Heartbeat overlap protection |
 | `tokio::process::Command` | Claude CLI subprocess |
-| `tokio::task::spawn_blocking` | Whisper transcription, file I/O |
-| `tokio_util::CancellationToken` | Shutdown propagation |
 
 ### Runtime Directory (`/data` in Docker)
 

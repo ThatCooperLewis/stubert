@@ -488,19 +488,19 @@ All 9 commands implemented (see [commands.md](commands.md) for details):
 - Example config files (`example-config/`)
 - NixOS deployment config
 - Verify all post-Phase-12 features are covered:
-  - [ ] Docker containerization
-  - [ ] Discord native slash commands
-  - [ ] Skills system
-  - [ ] Runtime config directory
-  - [ ] Post-restart greeting
-  - [ ] Live integration tests
-  - [ ] Model aliasing + display names
-  - [ ] CLI binary path config
-  - [ ] File cleanup (30 days)
-  - [ ] Discord DM support
-  - [ ] Telegram @botname stripping
-  - [ ] TelegramTransientFilter
-  - [ ] Whisper in blocking task
+  - [x] Docker containerization
+  - [x] Discord native slash commands
+  - [x] Skills system
+  - [x] Runtime config directory
+  - [x] Post-restart greeting
+  - [x] Live integration tests
+  - [x] Model aliasing + display names
+  - [x] CLI binary path config
+  - [x] File cleanup (30 days)
+  - [x] Discord DM support
+  - [x] Telegram @botname stripping
+  - [x] TelegramTransientFilter
+  - [ ] Whisper in blocking task (deferred — structural support exists, runtime implementation pending)
 
 ## Test Strategy
 
