@@ -14,8 +14,10 @@ use uuid::Uuid;
 use crate::adapters::{IncomingMessage, MessageHandler, PlatformAdapter};
 use crate::config::types::StubbertConfig;
 use crate::gateway::claude_cli::{call_claude, ClaudeCallParams, ClaudeError, ClaudeResponse};
+use crate::gateway::commands::{dispatch_command, parse_command, HeartbeatTrigger};
 use crate::gateway::history::HistoryWriter;
 use crate::gateway::session::SessionManager;
+use crate::gateway::skills::SkillRegistry;
 
 // Constants
 const RESTART_MESSAGE: &str = "Bot is restarting, one moment.";
@@ -525,14 +527,43 @@ async fn handle_message(
     consumer_tasks: Arc<Mutex<HashMap<String, JoinHandle<()>>>>,
     config: StubbertConfig,
     transcriber: Option<Arc<dyn Transcriber>>,
+    skill_registry: Arc<SkillRegistry>,
+    heartbeat_trigger: Option<Arc<dyn HeartbeatTrigger>>,
+    start_time: Option<Instant>,
 ) {
-    // Check for commands (Phase 8 will handle)
-    if msg
-        .text
-        .as_ref()
-        .map_or(false, |t| t.starts_with('/'))
-    {
-        return;
+    // Check for slash commands — dispatch immediately, bypass queue
+    if let Some(text) = &msg.text {
+        if let Some((name, args)) = parse_command(text) {
+            let adapter = {
+                let adapters = adapters.lock().await;
+                match adapters.get(&msg.platform) {
+                    Some(a) => a.clone(),
+                    None => {
+                        tracing::warn!(platform = %msg.platform, "no adapter for command");
+                        return;
+                    }
+                }
+            };
+            dispatch_command(
+                name,
+                args,
+                &msg,
+                adapter,
+                session_manager,
+                claude_caller,
+                history_writer,
+                skill_registry,
+                config,
+                start_time,
+                heartbeat_trigger,
+            )
+            .await;
+            return;
+        }
+        // Unrecognized slash command — ignore
+        if text.starts_with('/') {
+            return;
+        }
     }
 
     // Build prompt
@@ -610,6 +641,8 @@ pub struct Gateway {
     consumer_tasks: Arc<Mutex<HashMap<String, JoinHandle<()>>>>,
     start_time: Option<Instant>,
     running: Arc<AtomicBool>,
+    skill_registry: Arc<SkillRegistry>,
+    heartbeat_trigger: Option<Arc<dyn HeartbeatTrigger>>,
 }
 
 impl Gateway {
@@ -619,6 +652,8 @@ impl Gateway {
         history_writer: HistoryWriter,
         claude_caller: Arc<dyn ClaudeCaller>,
         transcriber: Option<Arc<dyn Transcriber>>,
+        skill_registry: SkillRegistry,
+        heartbeat_trigger: Option<Arc<dyn HeartbeatTrigger>>,
     ) -> Self {
         let submitted_files_dir =
             PathBuf::from(&config.claude.working_directory).join("submitted-files");
@@ -633,6 +668,8 @@ impl Gateway {
             consumer_tasks: Arc::new(Mutex::new(HashMap::new())),
             start_time: None,
             running: Arc::new(AtomicBool::new(false)),
+            skill_registry: Arc::new(skill_registry),
+            heartbeat_trigger,
         }
     }
 
@@ -646,6 +683,16 @@ impl Gateway {
     }
 
     pub async fn start(&mut self) {
+        // Record start time before handlers are created (they capture it)
+        self.start_time = Some(Instant::now());
+
+        // Discover skills
+        {
+            let registry = Arc::get_mut(&mut self.skill_registry)
+                .expect("skill_registry not yet shared");
+            registry.discover();
+        }
+
         // Load sessions (ignore missing file)
         {
             let mut sm = self.session_manager.lock().await;
@@ -690,7 +737,6 @@ impl Gateway {
 
         // Mark as running
         self.running.store(true, Ordering::SeqCst);
-        self.start_time = Some(Instant::now());
     }
 
     pub async fn shutdown(&mut self) {
@@ -757,6 +803,9 @@ impl Gateway {
         let tasks = self.consumer_tasks.clone();
         let config = self.config.clone();
         let transcriber = self.transcriber.clone();
+        let sr = self.skill_registry.clone();
+        let ht = self.heartbeat_trigger.clone();
+        let start_time = self.start_time;
 
         Arc::new(move |msg| {
             let sm = sm.clone();
@@ -766,9 +815,14 @@ impl Gateway {
             let tasks = tasks.clone();
             let config = config.clone();
             let transcriber = transcriber.clone();
+            let sr = sr.clone();
+            let ht = ht.clone();
 
             Box::pin(async move {
-                handle_message(msg, sm, adapters, cc, hw, tasks, config, transcriber).await;
+                handle_message(
+                    msg, sm, adapters, cc, hw, tasks, config, transcriber, sr, ht, start_time,
+                )
+                .await;
             })
         })
     }
@@ -779,6 +833,7 @@ mod tests {
     use super::*;
     use crate::adapters::MockPlatformAdapter;
     use crate::config::types::*;
+    use crate::gateway::skills::SkillRegistry;
     use std::sync::atomic::AtomicU32;
     use tempfile::TempDir;
 
@@ -1853,6 +1908,7 @@ mod tests {
             adapters: Arc<Mutex<HashMap<String, Arc<Mutex<dyn PlatformAdapter>>>>>,
             consumer_tasks: Arc<Mutex<HashMap<String, JoinHandle<()>>>>,
             history_writer: Arc<HistoryWriter>,
+            skill_registry: Arc<SkillRegistry>,
             config: StubbertConfig,
             _dir: TempDir,
         }
@@ -1873,11 +1929,14 @@ mod tests {
                 Arc::new(Mutex::new(mock)),
             );
 
+            let sr = SkillRegistry::new(dir.path().join(".claude").join("skills"));
+
             HandleMessageSetup {
                 session_manager: Arc::new(Mutex::new(sm)),
                 adapters: Arc::new(Mutex::new(adapters_map)),
                 consumer_tasks: Arc::new(Mutex::new(HashMap::new())),
                 history_writer: Arc::new(hw),
+                skill_registry: Arc::new(sr),
                 config: make_config(),
                 _dir: dir,
             }
@@ -1896,6 +1955,7 @@ mod tests {
             handle_message(
                 msg, s.session_manager.clone(), s.adapters, cc, s.history_writer,
                 s.consumer_tasks.clone(), s.config, None,
+                s.skill_registry, None, None,
             )
             .await;
 
@@ -1925,6 +1985,7 @@ mod tests {
             handle_message(
                 msg, s.session_manager.clone(), s.adapters, cc, s.history_writer,
                 s.consumer_tasks.clone(), s.config, None,
+                s.skill_registry, None, None,
             )
             .await;
 
@@ -1943,6 +2004,7 @@ mod tests {
             handle_message(
                 msg, s.session_manager.clone(), s.adapters, cc, s.history_writer,
                 s.consumer_tasks.clone(), s.config, None,
+                s.skill_registry, None, None,
             )
             .await;
 
@@ -1961,6 +2023,7 @@ mod tests {
             handle_message(
                 msg, s.session_manager.clone(), s.adapters, cc, s.history_writer,
                 s.consumer_tasks.clone(), s.config, None,
+                s.skill_registry, None, None,
             )
             .await;
 
@@ -1983,12 +2046,14 @@ mod tests {
             handle_message(
                 msg1, s.session_manager.clone(), s.adapters.clone(), cc.clone(),
                 s.history_writer.clone(), s.consumer_tasks.clone(), s.config.clone(), None,
+                s.skill_registry.clone(), None, None,
             )
             .await;
 
             handle_message(
                 msg2, s.session_manager.clone(), s.adapters.clone(), cc,
                 s.history_writer.clone(), s.consumer_tasks.clone(), s.config.clone(), None,
+                s.skill_registry.clone(), None, None,
             )
             .await;
 
@@ -2029,12 +2094,14 @@ mod tests {
             handle_message(
                 msg1, s.session_manager.clone(), s.adapters.clone(), cc.clone(),
                 s.history_writer.clone(), s.consumer_tasks.clone(), s.config.clone(), None,
+                s.skill_registry.clone(), None, None,
             )
             .await;
 
             handle_message(
                 msg2, s.session_manager.clone(), s.adapters.clone(), cc,
                 s.history_writer.clone(), s.consumer_tasks.clone(), s.config.clone(), None,
+                s.skill_registry.clone(), None, None,
             )
             .await;
 
@@ -2058,8 +2125,9 @@ mod tests {
             let cc: Arc<dyn ClaudeCaller> = Arc::new(mock_claude);
             let mut config = make_config();
             config.claude.working_directory = dir.to_str().unwrap().to_string();
+            let sr = SkillRegistry::new(dir.join(".claude").join("skills"));
 
-            Gateway::new(config, sm, hw, cc, None)
+            Gateway::new(config, sm, hw, cc, None, sr, None)
         }
 
         #[tokio::test]

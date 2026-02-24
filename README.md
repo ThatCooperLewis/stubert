@@ -29,6 +29,8 @@ cargo test --lib config
 cargo test --lib gateway::claude_cli
 cargo test --lib gateway::session
 cargo test --lib gateway::history
+cargo test --lib gateway::commands
+cargo test --lib gateway::skills
 cargo test --lib adapters::telegram
 cargo test --lib adapters
 cargo test --lib gateway::core
@@ -47,6 +49,7 @@ src/
 ├── adapters/
 │   ├── mod.rs               # PlatformAdapter trait, IncomingMessage, AdapterError
 │   ├── telegram.rs          # TelegramAdapter (teloxide long-polling, media downloads)
+│   ├── discord.rs           # DiscordAdapter (serenity WebSocket, slash commands, media)
 │   ├── markdown.rs          # to_telegram() (MarkdownV2), to_discord()
 │   ├── message_split.rs     # split_message() (code-block-aware chunking)
 │   └── sanitize.rs          # sanitize_filename() (path stripping, collision resolution)
@@ -54,6 +57,8 @@ src/
 │   ├── mod.rs               # Module declarations
 │   ├── core.rs              # Gateway orchestrator, message routing, consumer loop, lifecycle
 │   ├── claude_cli.rs        # call_claude(), model aliasing, arg assembly
+│   ├── commands.rs          # 9 slash commands, parse_command(), dispatch_command()
+│   ├── skills.rs            # SkillRegistry, frontmatter parsing from .claude/skills/*.md
 │   ├── history.rs           # HistoryWriter (daily transcripts, search)
 │   └── session.rs           # Session + SessionManager (message queue, persistence, inactivity timers)
 └── logging.rs               # setup_logging(), TelegramTransientFilter
@@ -103,6 +108,42 @@ heartbeat:
 health:
   port: 8484
 ```
+
+## Slash Commands
+
+| Command | Description |
+|---------|-------------|
+| `/new` | Start a fresh session |
+| `/context` | Check context window usage |
+| `/restart` | Restart the bot |
+| `/models [alias]` | List or switch models (sonnet, opus, haiku) |
+| `/skill [name] [args]` | List or invoke a skill |
+| `/history <query>` | Search conversation history |
+| `/status` | Show bot status (uptime, sessions, model) |
+| `/heartbeat` | Trigger a heartbeat check |
+| `/help` | Show command listing |
+
+## Skills
+
+Skills are prompt templates discovered from `.claude/skills/*.md` files. Each file uses YAML frontmatter:
+
+```markdown
+---
+name: trello
+description: Manage Trello boards
+allowed_tools:
+  - Bash
+  - Read
+add_dirs:
+  - /extra/dir
+---
+Create a Trello card with the given details.
+```
+
+- `name` (required) — skill identifier used with `/skill <name>`
+- `description` — shown when listing skills with `/skill`
+- `allowed_tools` — overrides platform default tools for this skill
+- `add_dirs` — additional directories to pass to Claude CLI
 
 ## Docker
 
