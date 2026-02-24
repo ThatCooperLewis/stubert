@@ -365,7 +365,9 @@ impl TelegramApi for RealTelegramApi {
 
         let response = reqwest::get(&url)
             .await
-            .map_err(|e| format!("HTTP request failed: {e}"))?;
+            .map_err(|e| format!("HTTP request failed: {e}"))?
+            .error_for_status()
+            .map_err(|e| format!("HTTP error: {e}"))?;
 
         let bytes = response
             .bytes()

@@ -1,3 +1,4 @@
+pub mod discord;
 pub mod markdown;
 pub mod message_split;
 pub mod sanitize;
