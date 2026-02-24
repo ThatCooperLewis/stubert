@@ -9,6 +9,7 @@ pub struct ClaudeCallParams {
     pub allowed_tools: Option<Vec<String>>,
     pub add_dirs: Option<Vec<String>>,
     pub model: Option<String>,
+    pub append_system_prompt: Option<String>,
     pub env_file_path: String,
     pub timeout_secs: u64,
     pub working_directory: String,
@@ -89,6 +90,11 @@ pub fn build_args(params: &ClaudeCallParams) -> Vec<String> {
     if let Some(ref model) = params.model {
         args.push("--model".to_string());
         args.push(model.clone());
+    }
+
+    if let Some(ref prompt) = params.append_system_prompt {
+        args.push("--append-system-prompt".to_string());
+        args.push(prompt.clone());
     }
 
     args
@@ -207,6 +213,7 @@ mod tests {
             allowed_tools: None,
             add_dirs: None,
             model: None,
+            append_system_prompt: None,
             env_file_path: ".env".to_string(),
             timeout_secs: 30,
             working_directory: ".".to_string(),
@@ -364,6 +371,15 @@ mod tests {
         }
 
         #[test]
+        fn includes_append_system_prompt() {
+            let mut params = make_params();
+            params.append_system_prompt = Some("You are on telegram.".to_string());
+            let args = build_args(&params);
+            let idx = args.iter().position(|a| a == "--append-system-prompt").unwrap();
+            assert_eq!(args[idx + 1], "You are on telegram.");
+        }
+
+        #[test]
         fn no_optional_args_when_none() {
             let params = make_params();
             let args = build_args(&params);
@@ -371,6 +387,7 @@ mod tests {
             assert!(!args.contains(&"--allowedTools".to_string()));
             assert!(!args.contains(&"--add-dir".to_string()));
             assert!(!args.contains(&"--model".to_string()));
+            assert!(!args.contains(&"--append-system-prompt".to_string()));
         }
     }
 

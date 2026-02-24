@@ -43,6 +43,8 @@ pub struct ClaudeConfig {
     pub allowed_tools: HashMap<String, Vec<String>>,
     #[serde(default)]
     pub add_dirs: Vec<String>,
+    #[serde(default)]
+    pub platform_readmes: HashMap<String, String>,
 }
 
 #[derive(Debug, Clone, Deserialize)]

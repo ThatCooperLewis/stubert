@@ -8,7 +8,7 @@ use tokio::time::Instant;
 use crate::adapters::{IncomingMessage, PlatformAdapter};
 use crate::config::types::StubbertConfig;
 use crate::gateway::claude_cli::{display_model, resolve_model, ClaudeCallParams};
-use crate::gateway::core::ClaudeCaller;
+use crate::gateway::core::{build_platform_context, ClaudeCaller};
 use crate::gateway::history::HistoryWriter;
 use crate::gateway::session::SessionManager;
 use crate::gateway::skills::SkillRegistry;
@@ -270,6 +270,7 @@ async fn call_claude_for_command(
             allowed_tools,
             add_dirs,
             model: Some(model),
+            append_system_prompt: build_platform_context(platform, config),
             env_file_path: config.claude.env_file_path.clone(),
             timeout_secs: config.claude.timeout_secs,
             working_directory: config.claude.working_directory.clone(),
@@ -591,6 +592,7 @@ mod tests {
                 env_file_path: ".env".to_string(),
                 allowed_tools: HashMap::new(),
                 add_dirs: vec![],
+                platform_readmes: HashMap::new(),
             },
             sessions: SessionConfig {
                 timeout_minutes: 60,

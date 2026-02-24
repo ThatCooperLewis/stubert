@@ -26,6 +26,9 @@ claude:
     telegram: ["Bash", "Read", "Write", "Edit", "Glob", "Grep"]
     discord: ["Read"]
   add_dirs: []                        # Additional directories to pass to CLI via --add-dir
+  # platform_readmes:                  # Per-platform readme files appended to system prompt
+  #   telegram: "TELEGRAM.md"
+  #   discord: "DISCORD.md"
 
 # --- Sessions ---
 

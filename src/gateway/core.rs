@@ -244,6 +244,32 @@ async fn typing_loop(adapter: Arc<Mutex<dyn PlatformAdapter>>, chat_id: String) 
 
 // ---- Core Processing ----
 
+pub(crate) fn build_platform_context(platform: &str, config: &StubbertConfig) -> Option<String> {
+    let mut parts = vec![format!("You are communicating via {platform}.")];
+
+    if let Some(readme_path) = config.claude.platform_readmes.get(platform) {
+        let full_path = PathBuf::from(&config.claude.working_directory).join(readme_path);
+        match std::fs::read_to_string(&full_path) {
+            Ok(content) if !content.trim().is_empty() => {
+                parts.push(content);
+            }
+            Ok(_) => {
+                // Empty file — skip content, keep identifier
+            }
+            Err(e) => {
+                tracing::warn!(
+                    platform = %platform,
+                    path = %full_path.display(),
+                    error = %e,
+                    "failed to read platform readme"
+                );
+            }
+        }
+    }
+
+    Some(parts.join("\n\n"))
+}
+
 fn build_claude_params(
     prompt: &str,
     session_id: &str,
@@ -263,6 +289,7 @@ fn build_claude_params(
             Some(config.claude.add_dirs.clone())
         },
         model: Some(model.to_string()),
+        append_system_prompt: build_platform_context(platform, config),
         env_file_path: config.claude.env_file_path.clone(),
         timeout_secs: config.claude.timeout_secs,
         working_directory: config.claude.working_directory.clone(),
@@ -915,6 +942,7 @@ mod tests {
                 env_file_path: ".env".to_string(),
                 allowed_tools: HashMap::new(),
                 add_dirs: vec![],
+                platform_readmes: HashMap::new(),
             },
             sessions: SessionConfig {
                 timeout_minutes: 60,
@@ -2413,6 +2441,77 @@ mod tests {
             }
 
             assert_eq!(gw.active_session_count().await, 1);
+        }
+    }
+
+    // ---- build_platform_context tests ----
+
+    mod test_build_platform_context {
+        use super::*;
+
+        #[test]
+        fn returns_identifier_for_unconfigured_platform() {
+            let config = make_config();
+            let result = build_platform_context("telegram", &config);
+            assert_eq!(result, Some("You are communicating via telegram.".to_string()));
+        }
+
+        #[test]
+        fn includes_readme_content_when_configured() {
+            let dir = TempDir::new().unwrap();
+            std::fs::write(dir.path().join("TELEGRAM.md"), "Use MarkdownV2 formatting.").unwrap();
+
+            let mut config = make_config();
+            config.claude.working_directory = dir.path().to_str().unwrap().to_string();
+            config.claude.platform_readmes.insert(
+                "telegram".to_string(),
+                "TELEGRAM.md".to_string(),
+            );
+
+            let result = build_platform_context("telegram", &config).unwrap();
+            assert!(result.contains("You are communicating via telegram."));
+            assert!(result.contains("Use MarkdownV2 formatting."));
+        }
+
+        #[test]
+        fn handles_missing_readme_file() {
+            let dir = TempDir::new().unwrap();
+
+            let mut config = make_config();
+            config.claude.working_directory = dir.path().to_str().unwrap().to_string();
+            config.claude.platform_readmes.insert(
+                "telegram".to_string(),
+                "NONEXISTENT.md".to_string(),
+            );
+
+            let result = build_platform_context("telegram", &config).unwrap();
+            assert_eq!(result, "You are communicating via telegram.");
+        }
+
+        #[test]
+        fn handles_empty_readme_file() {
+            let dir = TempDir::new().unwrap();
+            std::fs::write(dir.path().join("TELEGRAM.md"), "   \n  \n").unwrap();
+
+            let mut config = make_config();
+            config.claude.working_directory = dir.path().to_str().unwrap().to_string();
+            config.claude.platform_readmes.insert(
+                "telegram".to_string(),
+                "TELEGRAM.md".to_string(),
+            );
+
+            let result = build_platform_context("telegram", &config).unwrap();
+            assert_eq!(result, "You are communicating via telegram.");
+        }
+
+        #[test]
+        fn different_platforms_get_different_identifiers() {
+            let config = make_config();
+            let tg = build_platform_context("telegram", &config).unwrap();
+            let dc = build_platform_context("discord", &config).unwrap();
+            assert!(tg.contains("telegram"));
+            assert!(dc.contains("discord"));
+            assert_ne!(tg, dc);
         }
     }
 }

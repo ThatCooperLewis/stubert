@@ -8,6 +8,7 @@ fn make_live_params(prompt: &str) -> ClaudeCallParams {
         allowed_tools: None,
         add_dirs: None,
         model: None,
+        append_system_prompt: None,
         env_file_path: ".env".to_string(),
         timeout_secs: 120,
         working_directory: ".".to_string(),

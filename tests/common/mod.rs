@@ -15,6 +15,7 @@ pub struct CapturedCall {
     pub session_id: String,
     pub is_new_session: bool,
     pub model: Option<String>,
+    pub append_system_prompt: Option<String>,
 }
 
 pub struct TestClaudeCaller {
@@ -62,6 +63,7 @@ impl ClaudeCaller for TestClaudeCaller {
             session_id: params.session_id.clone(),
             is_new_session: params.is_new_session,
             model: params.model.clone(),
+            append_system_prompt: params.append_system_prompt.clone(),
         });
 
         if let Some(delay) = self.delay {
@@ -191,6 +193,7 @@ pub fn make_test_config(working_dir: &Path) -> StubbertConfig {
             env_file_path: ".env".to_string(),
             allowed_tools: HashMap::new(),
             add_dirs: vec![],
+            platform_readmes: HashMap::new(),
         },
         sessions: SessionConfig {
             timeout_minutes: 60,

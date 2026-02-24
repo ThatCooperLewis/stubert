@@ -251,6 +251,7 @@ impl HeartbeatRunner {
             allowed_tools,
             add_dirs: None,
             model: None,
+            append_system_prompt: None,
             env_file_path: self.env_file_path.clone(),
             timeout_secs: self.timeout_secs,
             working_directory: self.working_directory.clone(),
@@ -340,6 +341,7 @@ mod tests {
             env_file_path: ".env".to_string(),
             allowed_tools: HashMap::new(),
             add_dirs: vec![],
+            platform_readmes: HashMap::new(),
         }
     }
 
@@ -555,6 +557,7 @@ mod tests {
                     allowed_tools: params.allowed_tools.clone(),
                     add_dirs: params.add_dirs.clone(),
                     model: params.model.clone(),
+                    append_system_prompt: params.append_system_prompt.clone(),
                     env_file_path: params.env_file_path.clone(),
                     timeout_secs: params.timeout_secs,
                     working_directory: params.working_directory.clone(),
