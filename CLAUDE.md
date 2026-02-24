@@ -8,7 +8,23 @@ Stubert is a personal AI agent service written in Rust that bridges messaging pl
 
 ## Build & Test Commands
 
-All development runs through Docker — there is no local Rust environment. The image contains the Rust toolchain and pre-compiled dependencies; the host `src/` is mounted at runtime. Code changes only require a container restart, not an image rebuild.
+Until Phase 12 is complete, all development runs through `cargo` locally.
+
+### Rust
+
+```bash
+# Build
+cargo build
+
+# Run all unit tests
+cargo test
+
+# Run tests for a specific module
+cargo test --lib adapters::telegram
+cargo test --lib gateway::session
+```
+
+### Docker (Not Yet Implemented)
 
 ```bash
 # Build image (only needed when Cargo.toml/Cargo.lock change)

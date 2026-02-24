@@ -1,6 +1,7 @@
 pub mod markdown;
 pub mod message_split;
 pub mod sanitize;
+pub mod telegram;
 
 use std::future::Future;
 use std::path::PathBuf;

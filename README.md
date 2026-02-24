@@ -29,6 +29,7 @@ cargo test --lib config
 cargo test --lib gateway::claude_cli
 cargo test --lib gateway::session
 cargo test --lib gateway::history
+cargo test --lib adapters::telegram
 cargo test --lib adapters
 cargo test --lib logging
 ```
@@ -44,6 +45,7 @@ src/
 │   └── types.rs             # Config structs (StubbertConfig + sub-configs)
 ├── adapters/
 │   ├── mod.rs               # PlatformAdapter trait, IncomingMessage, AdapterError
+│   ├── telegram.rs          # TelegramAdapter (teloxide long-polling, media downloads)
 │   ├── markdown.rs          # to_telegram() (MarkdownV2), to_discord()
 │   ├── message_split.rs     # split_message() (code-block-aware chunking)
 │   └── sanitize.rs          # sanitize_filename() (path stripping, collision resolution)
@@ -102,4 +104,4 @@ health:
 
 ## Docker
 
-Docker deployment is planned for a later phase. Until then, all development runs through `cargo` locally.
+Until Phase 12 is complete, all development runs through `cargo` locally. See `design-docs/docker.md` for the planned Docker setup.
