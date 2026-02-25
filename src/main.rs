@@ -283,6 +283,7 @@ on the web and present it clearly.
 
 async fn search(query: Vec<String>, model: String, timeout: u64) -> ExitCode {
     let prompt = query.join(" ");
+    eprintln!("stubert search: query={prompt:?} model={model} timeout={timeout}s");
     let session_id = Uuid::new_v4().to_string();
     let resolved_model = resolve_model(&model);
 
@@ -314,11 +315,15 @@ async fn search(query: Vec<String>, model: String, timeout: u64) -> ExitCode {
 
     let exit_code = match call_claude(&params).await {
         Ok(response) => {
+            eprintln!(
+                "stubert search: done (${:.4}, {}ms)",
+                response.cost_usd, response.duration_ms
+            );
             println!("{}", response.result);
             ExitCode::SUCCESS
         }
         Err(e) => {
-            eprintln!("search failed: {e}");
+            eprintln!("stubert search: failed: {e}");
             ExitCode::FAILURE
         }
     };
