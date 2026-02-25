@@ -55,7 +55,7 @@ docker run --rm \
 docker run -d --name stubert \
   --network=host \
   -v ./src:/app/src \
-  -v ./config:/data \
+  -v ./config:/app/config \
   -v "$HOME/.claude":/root/.claude \
   -v "$HOME/.claude.json":/root/.claude.json \
   stubert:local
@@ -113,7 +113,7 @@ stubert/
 │   └── live_cli.rs              # Real Claude CLI tests (#[ignore])
 ├── design-docs/                 # Architecture and design documentation
 ├── example-config/              # Git-committed example runtime files (templates)
-├── config/                      # Gitignored live runtime directory (actively used)
+├── config/                      # Gitignored live runtime directory (mounted as /app/config in Docker)
 ├── Dockerfile                   # Single-stage: Rust + Node.js + Claude CLI + pre-compiled deps
 └── docker-entrypoint.sh         # Entrypoint: serve (default), test, or passthrough
 ```
@@ -136,9 +136,16 @@ stubert/
 | `tokio::sync::Mutex` | Heartbeat overlap protection |
 | `tokio::process::Command` | Claude CLI subprocess |
 
-### Runtime Directory (`/data` in Docker)
+### Runtime Directory (`/app/config` in Docker)
 
-The service operates from a runtime directory (`config/` on host, `/data` in container) containing config, memory files, history, logs, and sessions. All paths in `config.yaml` are relative to this directory.
+The service operates from a runtime directory (`config/` on host, `/app/config` in container) containing config, memory files, history, logs, and sessions. All paths in `config.yaml` are relative to this directory.
+
+Additionally, host filesystem paths are mounted 1:1 into the container so the agent sees real paths:
+- `/home/cooper` — home directory
+- `/mnt/plex-content` — media network share
+- `/mnt/obsidian` — notes/docs network share
+
+These are granted to the CLI via `add_dirs` in `config.yaml`.
 
 - **`example-config/`** — Git-committed example files serving as templates for the runtime directory. These are checked into the repo so new deployments have a reference starting point.
 - **`config/`** — Gitignored live runtime directory that is actively used by the running service. Contains real secrets, session state, logs, and history.

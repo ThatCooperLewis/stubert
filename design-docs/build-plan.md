@@ -466,7 +466,7 @@ All 9 commands implemented (see [commands.md](commands.md) for details):
 
 - Single-stage Dockerfile (Rust toolchain with pre-compiled dependencies)
 - Entrypoint script: serve / test / passthrough
-- Volume mounts: /data, /root/.claude, /root/.claude.json
+- Volume mounts: /app/config, /root/.claude, /root/.claude.json
 - HEALTHCHECK directive
 - Build caching (dependencies before source)
 - Example docker-compose or run commands

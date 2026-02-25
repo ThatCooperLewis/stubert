@@ -7,7 +7,7 @@ case "${1:-serve}" in
         # dummy sources used during the image's dependency-cache layer.
         find src -name '*.rs' -exec touch {} +
         cargo build --release
-        exec /app/target/release/stubert --runtime-dir /data
+        exec /app/target/release/stubert --runtime-dir /app/config
         ;;
     test)
         shift

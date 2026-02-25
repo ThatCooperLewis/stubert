@@ -64,7 +64,7 @@ set -e
 case "${1:-serve}" in
     serve)
         cargo build --release
-        exec /app/target/release/stubert --runtime-dir /data
+        exec /app/target/release/stubert --runtime-dir /app/config
         ;;
     test)
         shift
@@ -97,7 +97,7 @@ Four mount points are used at runtime:
 | Host Path | Container Path | Purpose |
 |-----------|---------------|---------|
 | `./src` | `/app/src` | Live source code (compiled on container startup) |
-| `./config` | `/data` | Runtime directory (config, memory files, history, logs, sessions) |
+| `./config` | `/app/config` | Runtime directory (config, memory files, history, logs, sessions) |
 | `$HOME/.claude` | `/root/.claude` | Claude Code authentication token |
 | `$HOME/.claude.json` | `/root/.claude.json` | Claude Code authentication metadata |
 
@@ -107,12 +107,12 @@ The host `src/` directory is mounted into the container at `/app/src`, overlayin
 
 The `/app/target/` directory lives inside the container's writable layer. It persists across entrypoint compilation but is lost when the container is removed. This is fine — dependency artifacts are rebuilt from the image cache, and source compilation is fast.
 
-### Runtime Directory (`/data`)
+### Runtime Directory (`/app/config`)
 
-This is the working directory for the service. All relative paths in `config.yaml` resolve against `/data`:
+This is the working directory for the service. All relative paths in `config.yaml` resolve against `/app/config`:
 
 ```
-/data/
+/app/config/
 ├── config.yaml
 ├── .env
 ├── CLAUDE.md
@@ -160,7 +160,7 @@ docker build -t stubert:local .
 # Run (compiles src/ on startup)
 docker run --rm \
   -v ./src:/app/src \
-  -v ./config:/data \
+  -v ./config:/app/config \
   -v "$HOME/.claude":/root/.claude \
   -v "$HOME/.claude.json":/root/.claude.json \
   stubert:local
@@ -200,7 +200,7 @@ For development without `--network=host`:
 ```bash
 docker run --rm -p 8484:8484 \
   -v ./src:/app/src \
-  -v ./config:/data \
+  -v ./config:/app/config \
   -v "$HOME/.claude":/root/.claude \
   -v "$HOME/.claude.json":/root/.claude.json \
   stubert:local
