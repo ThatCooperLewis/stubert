@@ -16,6 +16,7 @@ use thiserror::Error;
 pub struct IncomingMessage {
     pub platform: String,
     pub user_id: String,
+    pub username: Option<String>,
     pub chat_id: String,
     pub text: Option<String>,
     pub image_paths: Vec<PathBuf>,
@@ -59,6 +60,7 @@ mod tests {
         let msg = IncomingMessage {
             platform: "telegram".to_string(),
             user_id: "123".to_string(),
+            username: None,
             chat_id: "456".to_string(),
             text: Some("hello".to_string()),
             image_paths: vec![],
@@ -75,6 +77,7 @@ mod tests {
         let msg = IncomingMessage {
             platform: "discord".to_string(),
             user_id: "u1".to_string(),
+            username: None,
             chat_id: "c1".to_string(),
             text: None,
             image_paths: vec![PathBuf::from("/tmp/img.jpg")],

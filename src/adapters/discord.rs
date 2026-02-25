@@ -54,6 +54,7 @@ pub struct SlashCommandOption {
 #[derive(Debug, Clone)]
 struct ParsedDiscordMessage {
     user_id: u64,
+    username: Option<String>,
     bot_user_id: u64,
     channel_id: u64,
     guild_id: Option<u64>,
@@ -67,6 +68,7 @@ struct ParsedDiscordMessage {
 #[derive(Debug, Clone)]
 struct ParsedInteraction {
     user_id: u64,
+    username: Option<String>,
     channel_id: u64,
     interaction_id: u64,
     interaction_token: String,
@@ -340,6 +342,7 @@ async fn process_parsed_message(
     let incoming = IncomingMessage {
         platform: "discord".to_string(),
         user_id: msg.user_id.to_string(),
+        username: msg.username,
         chat_id: msg.channel_id.to_string(),
         text,
         image_paths,
@@ -392,6 +395,7 @@ async fn process_parsed_interaction(
     let incoming = IncomingMessage {
         platform: "discord".to_string(),
         user_id: interaction.user_id.to_string(),
+        username: interaction.username,
         chat_id: interaction.channel_id.to_string(),
         text: Some(text),
         image_paths: vec![],
@@ -428,8 +432,15 @@ fn parse_discord_message(
         })
         .collect();
 
+    let username = msg
+        .author
+        .global_name
+        .clone()
+        .unwrap_or_else(|| msg.author.name.clone());
+
     ParsedDiscordMessage {
         user_id: msg.author.id.get(),
+        username: Some(username),
         bot_user_id,
         channel_id: msg.channel_id.get(),
         guild_id: msg.guild_id.map(|g| g.get()),
@@ -451,8 +462,15 @@ fn parse_discord_interaction(
         }
     }
 
+    let username = cmd
+        .user
+        .global_name
+        .clone()
+        .unwrap_or_else(|| cmd.user.name.clone());
+
     ParsedInteraction {
         user_id: cmd.user.id.get(),
+        username: Some(username),
         channel_id: cmd.channel_id.get(),
         interaction_id: cmd.id.get(),
         interaction_token: cmd.token.clone(),
@@ -860,6 +878,7 @@ mod tests {
     fn make_parsed_dm(user_id: u64, channel_id: u64, content: &str) -> ParsedDiscordMessage {
         ParsedDiscordMessage {
             user_id,
+            username: None,
             bot_user_id: 999,
             channel_id,
             guild_id: None,
@@ -879,6 +898,7 @@ mod tests {
     ) -> ParsedDiscordMessage {
         ParsedDiscordMessage {
             user_id,
+            username: None,
             bot_user_id: 999,
             channel_id,
             guild_id: Some(guild_id),
@@ -898,6 +918,7 @@ mod tests {
     ) -> ParsedInteraction {
         ParsedInteraction {
             user_id,
+            username: None,
             channel_id,
             interaction_id: 12345,
             interaction_token: "test-token-abc".to_string(),

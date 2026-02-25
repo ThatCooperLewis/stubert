@@ -227,6 +227,7 @@ pub fn make_incoming(platform: &str, chat_id: &str, text: &str) -> IncomingMessa
     IncomingMessage {
         platform: platform.to_string(),
         user_id: "user1".to_string(),
+        username: None,
         chat_id: chat_id.to_string(),
         text: Some(text.to_string()),
         image_paths: vec![],
@@ -240,6 +241,7 @@ pub fn make_incoming_empty(platform: &str, chat_id: &str) -> IncomingMessage {
     IncomingMessage {
         platform: platform.to_string(),
         user_id: "user1".to_string(),
+        username: None,
         chat_id: chat_id.to_string(),
         text: None,
         image_paths: vec![],

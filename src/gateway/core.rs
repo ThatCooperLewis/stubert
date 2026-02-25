@@ -106,6 +106,8 @@ pub async fn build_prompt(
     let result = parts.join("\n\n");
     if result.is_empty() {
         None
+    } else if let Some(ref username) = msg.username {
+        Some(format!("[{username}] {result}"))
     } else {
         Some(result)
     }
@@ -991,6 +993,7 @@ mod tests {
         IncomingMessage {
             platform: platform.to_string(),
             user_id: "user1".to_string(),
+            username: None,
             chat_id: chat_id.to_string(),
             text: Some(text.to_string()),
             image_paths: vec![],
@@ -1004,6 +1007,7 @@ mod tests {
         IncomingMessage {
             platform: platform.to_string(),
             user_id: "user1".to_string(),
+            username: None,
             chat_id: chat_id.to_string(),
             text: None,
             image_paths: vec![],
@@ -1186,6 +1190,21 @@ mod tests {
             assert!(result.contains("`a.txt`: /tmp/a.txt"));
             assert!(result.contains("`b.txt`: /tmp/b.txt"));
             assert!(result.contains("/tmp/img.png"));
+        }
+
+        #[tokio::test]
+        async fn username_prefixed_when_present() {
+            let mut msg = make_incoming("discord", "42", "hello world");
+            msg.username = Some("Cooper".to_string());
+            let result = build_prompt(&msg, None).await.unwrap();
+            assert_eq!(result, "[Cooper] hello world");
+        }
+
+        #[tokio::test]
+        async fn no_prefix_when_username_absent() {
+            let msg = make_incoming("telegram", "123", "hello world");
+            let result = build_prompt(&msg, None).await.unwrap();
+            assert_eq!(result, "hello world");
         }
     }
 

@@ -51,6 +51,7 @@ struct DocumentInfo {
 #[derive(Debug, Clone)]
 struct ParsedMessage {
     user_id: u64,
+    username: Option<String>,
     chat_id: i64,
     text: Option<String>,
     photos: Vec<PhotoInfo>,
@@ -244,6 +245,7 @@ async fn process_parsed_message(
     let incoming = IncomingMessage {
         platform: "telegram".to_string(),
         user_id: msg.user_id.to_string(),
+        username: msg.username,
         chat_id: msg.chat_id.to_string(),
         text,
         image_paths,
@@ -299,6 +301,7 @@ fn parse_telegram_message(msg: &teloxide::types::Message) -> Option<ParsedMessag
 
     Some(ParsedMessage {
         user_id: user.id.0,
+        username: Some(user.first_name.clone()),
         chat_id: msg.chat.id.0,
         text,
         photos,
@@ -643,6 +646,7 @@ mod tests {
     fn make_parsed(user_id: u64, chat_id: i64, text: Option<&str>) -> ParsedMessage {
         ParsedMessage {
             user_id,
+            username: None,
             chat_id,
             text: text.map(|s| s.to_string()),
             photos: vec![],

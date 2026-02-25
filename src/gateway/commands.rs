@@ -638,6 +638,7 @@ mod tests {
         IncomingMessage {
             platform: platform.to_string(),
             user_id: "user1".to_string(),
+            username: None,
             chat_id: chat_id.to_string(),
             text: Some(text.to_string()),
             image_paths: vec![],
