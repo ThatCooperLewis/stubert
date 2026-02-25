@@ -103,9 +103,18 @@ pub fn build_args(params: &ClaudeCallParams) -> Vec<String> {
 pub async fn call_claude(params: &ClaudeCallParams) -> Result<ClaudeResponse, ClaudeError> {
     let args = build_args(params);
 
+    // Prepend .venv/bin to PATH so skill scripts using #!/usr/bin/env python3
+    // resolve to the venv's Python interpreter.
+    let venv_bin = std::path::Path::new(&params.working_directory).join(".venv/bin");
+    let path_env = match std::env::var("PATH") {
+        Ok(existing) => format!("{}:{existing}", venv_bin.display()),
+        Err(_) => venv_bin.display().to_string(),
+    };
+
     let mut cmd = tokio::process::Command::new(&params.cli_path);
     cmd.args(&args)
         .current_dir(&params.working_directory)
+        .env("PATH", &path_env)
         .env("CLAUDE_ENV_FILE", &params.env_file_path)
         .env("SHELL", "/bin/bash")
         .stdin(std::process::Stdio::null())
