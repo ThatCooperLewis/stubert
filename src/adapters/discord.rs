@@ -586,6 +586,7 @@ struct Handler {
     interaction_store: InteractionStore,
     bot_user_id: tokio::sync::OnceCell<u64>,
     api: Arc<dyn DiscordApi>,
+    http: Arc<serenity::http::Http>,
 }
 
 #[serenity::async_trait]
@@ -601,6 +602,8 @@ impl serenity::client::EventHandler for Handler {
             "Discord bot ready as {} (ID: {})",
             ready.user.name, bot_id
         );
+
+        self.http.set_application_id(ready.application.id);
 
         if let Err(e) = self.api.register_commands(slash_commands()).await {
             warn!("Failed to register slash commands: {e}");
@@ -707,7 +710,9 @@ impl PlatformAdapter for DiscordAdapter {
                 | serenity::model::gateway::GatewayIntents::MESSAGE_CONTENT;
 
             let http = Arc::new(serenity::http::Http::new(&self.config.token));
-            let api: Arc<dyn DiscordApi> = Arc::new(RealDiscordApi { http });
+            let api: Arc<dyn DiscordApi> = Arc::new(RealDiscordApi {
+                http: http.clone(),
+            });
             self.api = Some(api.clone());
 
             let event_handler = Handler {
@@ -717,6 +722,7 @@ impl PlatformAdapter for DiscordAdapter {
                 interaction_store: self.interaction_store.clone(),
                 bot_user_id: tokio::sync::OnceCell::new(),
                 api,
+                http,
             };
 
             let token = self.config.token.clone();
