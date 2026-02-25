@@ -355,6 +355,120 @@ docker run --rm -p 8484:8484 \
 
 See `design-docs/docker.md` for full details on build caching, rootless Docker, and NixOS deployment.
 
+## Systemd Service
+
+Stubert can run as a native systemd service instead of (or alongside) Docker. This avoids volume mount permission issues and gives you journal integration, automatic restarts, and standard service management.
+
+### Prerequisites
+
+- Rust toolchain (to build the release binary)
+- Node.js and Claude Code CLI (the subprocess needs these at runtime)
+- Claude Code authenticated for the user that will run the service (`claude login`)
+
+### Build the binary
+
+```bash
+cargo build --release
+```
+
+The binary is at `target/release/stubert`. Rebuild after code changes, then restart the service.
+
+### Create the unit file
+
+Create `/etc/systemd/system/stubert.service`:
+
+```ini
+[Unit]
+Description=Stubert AI Agent Service
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+ExecStart=/path/to/stubert/target/release/stubert --runtime-dir /path/to/stubert/config
+Restart=on-failure
+RestartSec=5
+TimeoutStopSec=30
+
+# Run as your user — needs access to ~/.claude auth
+User=youruser
+Group=yourgroup
+
+# Claude CLI needs HOME and PATH to find node/claude
+Environment=HOME=/home/youruser
+Environment=PATH=/usr/local/bin:/usr/bin:/bin
+
+# Load bot tokens and secrets from .env
+EnvironmentFile=/path/to/stubert/config/.env
+
+[Install]
+WantedBy=multi-user.target
+```
+
+Adjust the paths, user/group, and `PATH` to match your system. The `PATH` must include wherever `claude` and `node` are installed.
+
+### Enable and start
+
+```bash
+sudo systemctl daemon-reload
+sudo systemctl enable stubert
+sudo systemctl start stubert
+```
+
+### Managing the service
+
+```bash
+systemctl status stubert          # check status
+journalctl -u stubert -f          # tail logs
+sudo systemctl restart stubert    # restart after rebuilding
+```
+
+### Deploy workflow
+
+The typical cycle for code changes:
+
+```bash
+cargo build --release && sudo systemctl restart stubert
+```
+
+### NixOS
+
+On NixOS, declare the service in your configuration instead of writing a unit file manually. Example module:
+
+```nix
+{ lib, pkgs, ... }:
+
+let
+  repoDir = "/home/youruser/stubert";
+  configDir = "${repoDir}/config";
+  binary = "${repoDir}/target/release/stubert";
+in
+{
+  systemd.services.stubert = {
+    description = "Stubert AI Agent Service";
+    after = [ "network-online.target" ];
+    wants = [ "network-online.target" ];
+    wantedBy = [ "multi-user.target" ];
+
+    serviceConfig = {
+      Type = "simple";
+      ExecStart = "${binary} --runtime-dir ${configDir}";
+      Restart = "on-failure";
+      RestartSec = 5;
+      User = "youruser";
+      Group = "users";
+      Environment = [
+        "HOME=/home/youruser"
+        "PATH=${lib.makeBinPath [ pkgs.claude-code pkgs.nodejs ]}:/run/current-system/sw/bin"
+      ];
+      EnvironmentFile = "${configDir}/.env";
+    };
+  };
+}
+```
+
+Import this module in your flake/configuration and run `nixos-rebuild switch`.
+
 ## Project Structure
 
 ```
