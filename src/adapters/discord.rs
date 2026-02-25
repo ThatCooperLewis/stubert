@@ -620,14 +620,19 @@ impl serenity::client::EventHandler for Handler {
         };
 
         let parsed = parse_discord_message(&msg, bot_user_id);
-        process_parsed_message(
-            parsed,
-            &self.config,
-            self.api.as_ref(),
-            &self.handler,
-            &self.files_dir,
-        )
-        .await;
+        if !should_activate(&parsed) {
+            return;
+        }
+
+        // Spawn into a separate task so the shard runner can continue
+        // processing gateway events (including heartbeats) without blocking.
+        let config = self.config.clone();
+        let api = self.api.clone();
+        let handler = self.handler.clone();
+        let files_dir = self.files_dir.clone();
+        tokio::spawn(async move {
+            process_parsed_message(parsed, &config, api.as_ref(), &handler, &files_dir).await;
+        });
     }
 
     async fn interaction_create(
@@ -640,14 +645,23 @@ impl serenity::client::EventHandler for Handler {
         };
 
         let parsed = parse_discord_interaction(&cmd);
-        process_parsed_interaction(
-            parsed,
-            &self.config,
-            self.api.as_ref(),
-            &self.handler,
-            &self.interaction_store,
-        )
-        .await;
+
+        // Spawn into a separate task so the shard runner can continue
+        // processing gateway events (including heartbeats) without blocking.
+        let config = self.config.clone();
+        let api = self.api.clone();
+        let handler = self.handler.clone();
+        let interaction_store = self.interaction_store.clone();
+        tokio::spawn(async move {
+            process_parsed_interaction(
+                parsed,
+                &config,
+                api.as_ref(),
+                &handler,
+                &interaction_store,
+            )
+            .await;
+        });
     }
 }
 
