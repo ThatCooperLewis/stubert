@@ -548,8 +548,18 @@ async fn run_polling(
     use teloxide::prelude::*;
     use teloxide::types::UpdateKind;
 
-    let bot = teloxide::Bot::new(&config.token);
+    // Custom HTTP client with TCP keepalive to prevent NAT/firewall from
+    // dropping the long-poll connection during the 30-second idle wait.
+    let client = reqwest::Client::builder()
+        .tcp_keepalive(std::time::Duration::from_secs(15))
+        .connect_timeout(std::time::Duration::from_secs(10))
+        .timeout(std::time::Duration::from_secs(60))
+        .build()
+        .expect("Failed to build HTTP client for Telegram polling");
+
+    let bot = teloxide::Bot::with_client(&config.token, client);
     let mut offset: Option<i32> = None;
+    let mut consecutive_errors: u32 = 0;
 
     info!("Telegram polling loop started");
 
@@ -562,6 +572,14 @@ async fn run_polling(
 
         match req.await {
             Ok(updates) => {
+                if consecutive_errors > 0 {
+                    info!(
+                        "Telegram polling recovered after {} consecutive error(s)",
+                        consecutive_errors
+                    );
+                    consecutive_errors = 0;
+                }
+
                 for update in updates {
                     offset = Some(update.id.as_offset());
 
@@ -580,8 +598,17 @@ async fn run_polling(
                 }
             }
             Err(e) => {
-                warn!("Telegram polling error: {e}");
-                tokio::time::sleep(tokio::time::Duration::from_secs(5)).await;
+                consecutive_errors += 1;
+                if consecutive_errors == 1 {
+                    warn!("Telegram polling error: {e}");
+                } else if consecutive_errors.is_power_of_two() {
+                    warn!(
+                        "Telegram polling error ({} consecutive): {e}",
+                        consecutive_errors
+                    );
+                }
+                let backoff = std::cmp::min(5 * consecutive_errors as u64, 60);
+                tokio::time::sleep(tokio::time::Duration::from_secs(backoff)).await;
             }
         }
     }
