@@ -3,11 +3,12 @@ use std::process::ExitCode;
 use std::sync::Arc;
 
 use clap::{Parser, Subcommand};
+use uuid::Uuid;
 
 use stubert::adapters::discord::DiscordAdapter;
 use stubert::adapters::telegram::TelegramAdapter;
 use stubert::config::load_config;
-use stubert::gateway::claude_cli::resolve_model;
+use stubert::gateway::claude_cli::{call_claude, resolve_model, ClaudeCallParams};
 use stubert::gateway::commands::HeartbeatTrigger;
 use stubert::gateway::core::{Gateway, RealClaudeCaller};
 use stubert::gateway::heartbeat::HeartbeatRunner;
@@ -30,9 +31,9 @@ struct Cli {
 enum Command {
     /// Start the stubert service (default)
     Run {
-        /// Path to the runtime directory
-        #[arg(long, default_value = ".")]
-        runtime_dir: PathBuf,
+        /// Path to the runtime directory (auto-detected from binary location if omitted)
+        #[arg(long)]
+        runtime_dir: Option<PathBuf>,
     },
     /// Restart the running service
     Restart,
@@ -42,9 +43,23 @@ enum Command {
     Rebuild,
     /// Show configured scheduled tasks
     Schedules {
-        /// Path to the runtime directory
-        #[arg(long, default_value = ".")]
-        runtime_dir: PathBuf,
+        /// Path to the runtime directory (auto-detected from binary location if omitted)
+        #[arg(long)]
+        runtime_dir: Option<PathBuf>,
+    },
+    /// Search the web using an isolated Claude agent
+    Search {
+        /// The search query
+        #[arg(trailing_var_arg = true, required = true)]
+        query: Vec<String>,
+
+        /// Model to use (sonnet, opus, haiku, or full model ID)
+        #[arg(long, default_value = "sonnet")]
+        model: String,
+
+        /// Timeout in seconds
+        #[arg(long, default_value_t = 120)]
+        timeout: u64,
     },
 }
 
@@ -52,17 +67,32 @@ enum Command {
 async fn main() -> ExitCode {
     let cli = Cli::parse();
 
-    match cli.command.unwrap_or(Command::Run {
-        runtime_dir: PathBuf::from("."),
-    }) {
-        Command::Run { runtime_dir } => {
-            run(runtime_dir).await;
-            ExitCode::SUCCESS
-        }
+    match cli.command.unwrap_or(Command::Run { runtime_dir: None }) {
+        Command::Run { runtime_dir } => match resolve_runtime_dir(runtime_dir) {
+            Ok(dir) => {
+                run(dir).await;
+                ExitCode::SUCCESS
+            }
+            Err(e) => {
+                eprintln!("{e}");
+                ExitCode::FAILURE
+            }
+        },
         Command::Restart => restart(),
         Command::Status => status().await,
         Command::Rebuild => rebuild(),
-        Command::Schedules { runtime_dir } => schedules(runtime_dir),
+        Command::Schedules { runtime_dir } => match resolve_runtime_dir(runtime_dir) {
+            Ok(dir) => schedules(dir),
+            Err(e) => {
+                eprintln!("{e}");
+                ExitCode::FAILURE
+            }
+        },
+        Command::Search {
+            query,
+            model,
+            timeout,
+        } => search(query, model, timeout).await,
     }
 }
 
@@ -86,6 +116,24 @@ fn repo_dir() -> Option<PathBuf> {
     let exe = std::env::current_exe().ok()?;
     let canonical = exe.canonicalize().ok()?;
     canonical.parent()?.parent()?.parent().map(PathBuf::from)
+}
+
+fn resolve_runtime_dir(explicit: Option<PathBuf>) -> Result<PathBuf, String> {
+    if let Some(dir) = explicit {
+        return Ok(dir);
+    }
+    // Auto-detect: <repo>/config/
+    let dir = repo_dir()
+        .map(|r| r.join("config"))
+        .ok_or_else(|| "could not locate runtime dir from binary path".to_string())?;
+    if dir.join("config.yaml").exists() {
+        Ok(dir)
+    } else {
+        Err(format!(
+            "auto-detected runtime dir {} has no config.yaml — pass --runtime-dir explicitly",
+            dir.display()
+        ))
+    }
 }
 
 fn rebuild() -> ExitCode {
@@ -215,6 +263,68 @@ async fn status() -> ExitCode {
             ExitCode::FAILURE
         }
     }
+}
+
+const SEARCH_CLAUDE_MD: &str = "\
+# Search Agent
+
+You are a focused web search assistant. Your only job is to find information
+on the web and present it clearly.
+
+## Instructions
+
+- Search the web for the user's query using WebSearch
+- If a search result looks promising, use WebFetch to get more details
+- Present a detailed, well-organized summary of your findings
+- Always cite your sources with URLs
+- If the query is ambiguous, search for the most likely interpretation
+- Provide a direct answer — no preamble about what you're doing
+";
+
+async fn search(query: Vec<String>, model: String, timeout: u64) -> ExitCode {
+    let prompt = query.join(" ");
+    let session_id = Uuid::new_v4().to_string();
+    let resolved_model = resolve_model(&model);
+
+    // Create isolated temp directory with .claude/ to prevent inheriting parent settings
+    let tmp_dir = std::env::temp_dir().join(format!("stubert-search-{session_id}"));
+    if let Err(e) = std::fs::create_dir_all(tmp_dir.join(".claude")) {
+        eprintln!("failed to create temp directory: {e}");
+        return ExitCode::FAILURE;
+    }
+    if let Err(e) = std::fs::write(tmp_dir.join("CLAUDE.md"), SEARCH_CLAUDE_MD) {
+        eprintln!("failed to write CLAUDE.md: {e}");
+        let _ = std::fs::remove_dir_all(&tmp_dir);
+        return ExitCode::FAILURE;
+    }
+
+    let params = ClaudeCallParams {
+        prompt,
+        session_id,
+        is_new_session: true,
+        allowed_tools: Some(vec!["WebSearch".to_string(), "WebFetch".to_string()]),
+        add_dirs: None,
+        model: Some(resolved_model),
+        append_system_prompt: None,
+        env_file_path: String::new(),
+        timeout_secs: timeout,
+        working_directory: tmp_dir.to_str().unwrap_or("/tmp").to_string(),
+        cli_path: "claude".to_string(),
+    };
+
+    let exit_code = match call_claude(&params).await {
+        Ok(response) => {
+            println!("{}", response.result);
+            ExitCode::SUCCESS
+        }
+        Err(e) => {
+            eprintln!("search failed: {e}");
+            ExitCode::FAILURE
+        }
+    };
+
+    let _ = std::fs::remove_dir_all(&tmp_dir);
+    exit_code
 }
 
 async fn run(runtime_dir: PathBuf) {
