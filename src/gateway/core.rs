@@ -384,15 +384,17 @@ async fn process_prompt(
             )
             .await;
         }
-        Err(ClaudeError::ExitError { .. }) if initiated => {
-            // Resume failure — notify user and retry with fresh session
-            if let Err(e) = adapter
-                .lock()
-                .await
-                .send_message(chat_id, SESSION_FAILURE_MESSAGE)
-                .await
-            {
-                tracing::warn!(error = %e, "failed to send session failure message");
+        Err(ClaudeError::ExitError { .. }) => {
+            // Retry with fresh session — notify user only if this was a resume failure
+            if initiated {
+                if let Err(e) = adapter
+                    .lock()
+                    .await
+                    .send_message(chat_id, SESSION_FAILURE_MESSAGE)
+                    .await
+                {
+                    tracing::warn!(error = %e, "failed to send session failure message");
+                }
             }
 
             // Reset session and build fresh params
@@ -439,6 +441,11 @@ async fn process_prompt(
             }
         }
         Err(ClaudeError::Timeout { timeout_secs }) => {
+            // Reset session to fresh UUID (CLI may have created session file before timeout)
+            let mut sm = session_manager.lock().await;
+            sm.reset_session(session_key);
+            drop(sm);
+
             let msg = format!("Claude timed out after {timeout_secs}s. Try a shorter request.");
             if let Err(e) = adapter.lock().await.send_message(chat_id, &msg).await {
                 tracing::warn!(error = %e, "failed to send timeout message");
@@ -1772,12 +1779,101 @@ mod tests {
         }
 
         #[tokio::test]
-        async fn exit_error_without_initiated_sends_error_message() {
+        async fn uninitiated_exit_error_retries_silently() {
             let dir = TempDir::new().unwrap();
             let mut sm = make_session_manager(dir.path());
             sm.get_or_create("telegram", "123");
             let session_key = SessionManager::conversation_key("telegram", "123");
-            // NOT marking as initiated — exit error should not trigger retry
+            // NOT marking as initiated — exit error should retry without failure message
+            let hw = Arc::new(HistoryWriter::new(dir.path().join("history")));
+
+            let sent = Arc::new(std::sync::Mutex::new(Vec::<String>::new()));
+            let sent_clone = sent.clone();
+            let mut mock = MockPlatformAdapter::new();
+            mock.expect_send_message()
+                .returning(move |_, text| {
+                    sent_clone.lock().unwrap().push(text.to_string());
+                    Ok(())
+                });
+            mock.expect_send_typing().returning(|_| Ok(()));
+            let adapter: Arc<Mutex<dyn PlatformAdapter>> = Arc::new(Mutex::new(mock));
+
+            let call_count = Arc::new(AtomicU32::new(0));
+            let cc_count = call_count.clone();
+            let mut mock_claude = MockClaudeCaller::new();
+            mock_claude.expect_call().returning(move |_| {
+                let n = cc_count.fetch_add(1, Ordering::SeqCst);
+                if n == 0 {
+                    claude_exit_error()
+                } else {
+                    claude_success("Recovered!")
+                }
+            });
+            let cc: Arc<dyn ClaudeCaller> = Arc::new(mock_claude);
+
+            let session_manager = Arc::new(Mutex::new(sm));
+            process_prompt(
+                &session_key, "hi", "telegram", "123", adapter,
+                session_manager.clone(), cc, hw, &make_config(),
+            )
+            .await;
+
+            let sent = sent.lock().unwrap();
+            // Should NOT send session failure message (wasn't a resume)
+            assert!(!sent.contains(&SESSION_FAILURE_MESSAGE.to_string()));
+            // Should have retried and succeeded
+            assert!(sent.contains(&"Recovered!".to_string()));
+            assert_eq!(call_count.load(Ordering::SeqCst), 2);
+        }
+
+        #[tokio::test]
+        async fn uninitiated_exit_error_retry_success_marks_initiated() {
+            let dir = TempDir::new().unwrap();
+            let mut sm = make_session_manager(dir.path());
+            sm.get_or_create("telegram", "123");
+            let session_key = SessionManager::conversation_key("telegram", "123");
+            // NOT marking as initiated
+            let hw = Arc::new(HistoryWriter::new(dir.path().join("history")));
+
+            let mut mock = MockPlatformAdapter::new();
+            mock.expect_send_message().returning(|_, _| Ok(()));
+            mock.expect_send_typing().returning(|_| Ok(()));
+            let adapter: Arc<Mutex<dyn PlatformAdapter>> = Arc::new(Mutex::new(mock));
+
+            let call_count = Arc::new(AtomicU32::new(0));
+            let cc_count = call_count.clone();
+            let mut mock_claude = MockClaudeCaller::new();
+            mock_claude.expect_call().returning(move |_| {
+                let n = cc_count.fetch_add(1, Ordering::SeqCst);
+                if n == 0 {
+                    claude_exit_error()
+                } else {
+                    claude_success("ok")
+                }
+            });
+            let cc: Arc<dyn ClaudeCaller> = Arc::new(mock_claude);
+
+            let session_manager = Arc::new(Mutex::new(sm));
+            process_prompt(
+                &session_key, "hi", "telegram", "123", adapter,
+                session_manager.clone(), cc, hw, &make_config(),
+            )
+            .await;
+
+            // Session should be marked as initiated after successful retry
+            let sm = session_manager.lock().await;
+            let session = sm.get(&session_key).unwrap();
+            assert!(session.initiated);
+        }
+
+        #[tokio::test]
+        async fn timeout_resets_session() {
+            let dir = TempDir::new().unwrap();
+            let mut sm = make_session_manager(dir.path());
+            sm.get_or_create("telegram", "123");
+            let session_key = SessionManager::conversation_key("telegram", "123");
+            sm.get_mut(&session_key).unwrap().mark_initiated();
+            let original_uuid = sm.get(&session_key).unwrap().session_id;
             let hw = Arc::new(HistoryWriter::new(dir.path().join("history")));
 
             let sent = Arc::new(std::sync::Mutex::new(Vec::<String>::new()));
@@ -1792,18 +1888,25 @@ mod tests {
             let adapter: Arc<Mutex<dyn PlatformAdapter>> = Arc::new(Mutex::new(mock));
 
             let mut mock_claude = MockClaudeCaller::new();
-            mock_claude.expect_call().times(1).returning(|_| claude_exit_error());
+            mock_claude.expect_call().times(1).returning(|_| claude_timeout(300));
             let cc: Arc<dyn ClaudeCaller> = Arc::new(mock_claude);
 
+            let session_manager = Arc::new(Mutex::new(sm));
             process_prompt(
                 &session_key, "hi", "telegram", "123", adapter,
-                Arc::new(Mutex::new(sm)), cc, hw, &make_config(),
+                session_manager.clone(), cc, hw, &make_config(),
             )
             .await;
 
+            // Session should have a new UUID and initiated=false
+            let sm = session_manager.lock().await;
+            let session = sm.get(&session_key).unwrap();
+            assert_ne!(session.session_id, original_uuid);
+            assert!(!session.initiated);
+
+            // Should have sent timeout message
             let sent = sent.lock().unwrap();
-            assert!(sent.contains(&ERROR_MESSAGE.to_string()));
-            assert!(!sent.contains(&SESSION_FAILURE_MESSAGE.to_string()));
+            assert!(sent.iter().any(|m| m.contains("timed out")));
         }
 
         #[tokio::test]
