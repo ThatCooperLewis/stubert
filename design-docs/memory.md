@@ -11,7 +11,7 @@ Stubert's memory system consists of four markdown files that the Claude CLI auto
 | `USER.md` | Human profile — name, timezone, preferences, tech stack, personal context | Claude via Telegram (full R/W) |
 | `MEMORY.md` | Long-term facts — decisions, learned preferences, project notes, accumulated knowledge | Claude via Telegram (full R/W) |
 
-All four files live in the runtime directory (`/app/config` in Docker). They're loaded by every platform, but only Telegram sessions have write access (via `allowed_tools` config). Discord sessions see the same context but can't modify it.
+All four files live in the runtime directory (`config/`). They're loaded by every platform, but only Telegram sessions have write access (via `allowed_tools` config). Discord sessions see the same context but can't modify it.
 
 ## Loading Mechanism
 
@@ -118,7 +118,7 @@ Stubert **does**:
 For memory to work, the runtime directory must contain at minimum:
 
 ```
-/app/config/
+config/
 ├── CLAUDE.md          # Required — CLI won't have instructions without it
 ├── SOUL.md            # Referenced by @import in CLAUDE.md
 ├── USER.md            # Referenced by @import in CLAUDE.md

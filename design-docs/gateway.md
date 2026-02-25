@@ -285,7 +285,7 @@ This prevents log noise from routine Telegram API hiccups.
 fn setup_logging(config: &LoggingConfig) {
     // tracing-subscriber with:
     //   - File appender (tracing-appender) with rotation
-    //   - Console/stdout layer (for Docker logs / journald)
+    //   - Console/stdout layer (for journald)
     //   - Format: [timestamp] [LEVEL] target: message
     //   - TelegramTransientFilter on the file layer
 }

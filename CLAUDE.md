@@ -8,8 +8,6 @@ Stubert is a personal AI agent service written in Rust that bridges messaging pl
 
 ## Build & Test Commands
 
-### Local (requires Rust toolchain)
-
 ```bash
 # Build
 cargo build
@@ -26,39 +24,6 @@ cargo test --test gateway_integration
 
 # Live tests (real Claude CLI, requires auth)
 cargo test --test live_cli -- --ignored
-```
-
-### Docker
-
-```bash
-# Build image (only needed when Cargo.toml/Cargo.lock change)
-docker build -t stubert:local .
-
-# Run all tests
-docker run --rm -v ./src:/app/src -v ./tests:/app/tests stubert:local test
-
-# Run a specific test module
-docker run --rm -v ./src:/app/src stubert:local test --lib gateway::session
-
-# Integration tests
-docker run --rm -v ./src:/app/src -v ./tests:/app/tests stubert:local test --test gateway_integration
-
-# Live CLI tests (real Claude CLI, needs auth mounts)
-docker run --rm \
-  -v ./src:/app/src \
-  -v ./tests:/app/tests \
-  -v "$HOME/.claude":/root/.claude \
-  -v "$HOME/.claude.json":/root/.claude.json \
-  stubert:local test --test live_cli -- --ignored
-
-# Start the service
-docker run -d --name stubert \
-  --network=host \
-  -v ./src:/app/src \
-  -v ./config:/app/config \
-  -v "$HOME/.claude":/root/.claude \
-  -v "$HOME/.claude.json":/root/.claude.json \
-  stubert:local
 ```
 
 ## Architecture
@@ -113,9 +78,7 @@ stubert/
 │   └── live_cli.rs              # Real Claude CLI tests (#[ignore])
 ├── design-docs/                 # Architecture and design documentation
 ├── example-config/              # Git-committed example runtime files (templates)
-├── config/                      # Gitignored live runtime directory (mounted as /app/config in Docker)
-├── Dockerfile                   # Single-stage: Rust + Node.js + Claude CLI + pre-compiled deps
-└── docker-entrypoint.sh         # Entrypoint: serve (default), test, or passthrough
+└── config/                      # Gitignored live runtime directory
 ```
 
 ### Key Design Decisions
@@ -136,16 +99,9 @@ stubert/
 | `tokio::sync::Mutex` | Heartbeat overlap protection |
 | `tokio::process::Command` | Claude CLI subprocess |
 
-### Runtime Directory (`/app/config` in Docker)
+### Runtime Directory
 
-The service operates from a runtime directory (`config/` on host, `/app/config` in container) containing config, memory files, history, logs, and sessions. All paths in `config.yaml` are relative to this directory.
-
-Additionally, host filesystem paths are mounted 1:1 into the container so the agent sees real paths:
-- `/home/cooper` — home directory
-- `/mnt/plex-content` — media network share
-- `/mnt/obsidian` — notes/docs network share
-
-These are granted to the CLI via `add_dirs` in `config.yaml`.
+The service operates from a runtime directory (`config/`) containing config, memory files, history, logs, and sessions. The path is passed via `--runtime-dir`. All paths in `config.yaml` are relative to this directory.
 
 - **`example-config/`** — Git-committed example files serving as templates for the runtime directory. These are checked into the repo so new deployments have a reference starting point.
 - **`config/`** — Gitignored live runtime directory that is actively used by the running service. Contains real secrets, session state, logs, and history.
@@ -176,10 +132,8 @@ Uses `rustls` throughout (not `native-tls`) — NixOS doesn't have OpenSSL dev h
 - Time-dependent tests use `tokio::time::pause()`
 - No real API calls in default test run — live tests are `#[ignore]`
 
-## Docker & Deployment
+## Deployment
 
-- Single-stage Dockerfile: Rust toolchain + system deps + Node.js 20 + Claude CLI + pre-compiled dependencies
-- Source mounted at runtime (`./src:/app/src`), compiled on container startup — code changes only require `docker restart`, not image rebuild
-- Image rebuild only needed for dependency changes (`Cargo.toml`/`Cargo.lock`)
-- NixOS deployment: `docker-stubert.service` with `--network=host`
-- Rootless Docker: container UID 0 maps to host UID 1000 (no privilege escalation)
+- Native systemd service on NixOS (`stubert.service`)
+- Build with `cargo build --release`, restart with `sudo systemctl restart stubert`
+- NixOS service config: `nixos-config/nixos/services/stubert.nix`

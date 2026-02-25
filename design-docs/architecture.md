@@ -94,10 +94,10 @@ stubert/
 
 ## Runtime Directory
 
-Stubert operates from a runtime directory (mounted as `/app/config` in Docker). All paths in config are relative to this directory.
+Stubert operates from a runtime directory (`config/` in the repo, passed via `--runtime-dir`). All paths in `config.yaml` are relative to this directory.
 
 ```
-/app/config/
+config/
 ├── config.yaml                # Main configuration
 ├── .env                       # Environment variables for Claude CLI Bash commands
 ├── CLAUDE.md                  # AI instructions (@imports SOUL.md, USER.md, MEMORY.md)

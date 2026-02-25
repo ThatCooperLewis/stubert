@@ -29,8 +29,7 @@ Phase 1 (Config + CLI + Logging)
   └── Phase 11 (Health)
         └── Phase 7 (Gateway)
 
-Phase 12 (Docker) — after all phases
-Phase 13 (Integration + Polish) — after all phases
+Phase 12 (Integration + Polish) — after all phases
 ```
 
 ---
@@ -458,28 +457,7 @@ All 9 commands implemented (see [commands.md](commands.md) for details):
 
 ---
 
-## Phase 12: Docker
-
-**Depends on:** All previous phases (builds the complete binary)
-
-**Design doc:** [docker.md](docker.md)
-
-- Single-stage Dockerfile (Rust toolchain with pre-compiled dependencies)
-- Entrypoint script: serve / test / passthrough
-- Volume mounts: /app/config, /root/.claude, /root/.claude.json
-- HEALTHCHECK directive
-- Build caching (dependencies before source)
-- Example docker-compose or run commands
-
-**Tests:**
-- Image builds successfully
-- `serve` mode starts the service
-- `test` mode runs the test suite
-- Health check passes after startup
-
----
-
-## Phase 13: Integration + Polish
+## Phase 12: Integration + Polish
 
 **Depends on:** All phases
 
@@ -487,8 +465,7 @@ All 9 commands implemented (see [commands.md](commands.md) for details):
 - Live integration tests (real Claude CLI, marked for separate execution)
 - Example config files (`example-config/`)
 - NixOS deployment config
-- Verify all post-Phase-12 features are covered:
-  - [x] Docker containerization
+- Verify all features are covered:
   - [x] Discord native slash commands
   - [x] Skills system
   - [x] Runtime config directory

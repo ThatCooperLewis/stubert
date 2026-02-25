@@ -8,7 +8,7 @@ Openclaw-inspired agent manager.
 
 ## Getting Started
 
-A step-by-step guide from zero to a running Stubert instance in Docker.
+A step-by-step guide from zero to a running Stubert instance.
 
 ### 1. Clone the repository
 
@@ -19,7 +19,7 @@ cd stubert
 
 ### 2. Create your runtime directory
 
-The runtime directory holds all configuration, memory files, logs, and session state. It gets mounted into the container as `/data`.
+The runtime directory holds all configuration, memory files, logs, and session state.
 
 ```bash
 mkdir -p config/.claude/skills config/history config/logs
@@ -64,48 +64,36 @@ Optional additional context files (Claude CLI reads these if they exist):
 
 You can use `@import` in `CLAUDE.md` to chain these files together.
 
-### 5. Build the Docker image
+### 5. Build the binary
 
-This compiles all Rust dependencies into a cached image layer. You only need to rebuild when `Cargo.toml` or `Cargo.lock` change.
-
-```bash
-docker build -t stubert:local .
-```
-
-### 6. Authenticate Claude Code
-
-The container needs access to your Claude Code authentication. If you already have Claude Code authenticated on your host machine, skip to step 7 — your `~/.claude` and `~/.claude.json` will be mounted directly.
-
-If you need to authenticate from scratch:
+Requires a Rust toolchain and a C compiler (`gcc` + `pkg-config`).
 
 ```bash
-docker run --rm -it \
-  -v "$HOME/.claude":/root/.claude \
-  -v "$HOME/.claude.json":/root/.claude.json \
-  stubert:local claude login
+cargo build --release
 ```
+
+The binary is at `target/release/stubert`.
+
+### 6. Prerequisites
+
+The Claude CLI subprocess needs these at runtime:
+- **Node.js** — Claude Code CLI runtime
+- **Claude Code CLI** — installed via `npm install -g @anthropic-ai/claude-code`
+- **Claude Code authenticated** — run `claude login` as the user that will run the service
 
 ### 7. Run the service
 
+You can run directly for testing:
+
 ```bash
-docker run -d --name stubert \
-  --network=host \
-  -v ./src:/app/src \
-  -v ./config:/data \
-  -v "$HOME/.claude":/root/.claude \
-  -v "$HOME/.claude.json":/root/.claude.json \
-  stubert:local
+./target/release/stubert --runtime-dir ./config
 ```
 
-The container compiles the source from the mounted `src/` on startup (a few seconds since dependencies are pre-compiled in the image), then starts the service.
+For production, set up a systemd service — see the [Systemd Service](#systemd-service) section below.
 
 ### 8. Verify
 
 ```bash
-# Check container status
-docker logs stubert
-
-# Check health endpoint
 curl http://localhost:8484/health
 ```
 
@@ -126,46 +114,115 @@ Send a message to your bot on Telegram or Discord to confirm it responds.
 
 ### Restarting after code changes
 
-Source changes only require a container restart — no image rebuild:
-
 ```bash
-docker restart stubert
+cargo build --release && sudo systemctl restart stubert
 ```
 
-Dependency changes (`Cargo.toml`/`Cargo.lock`) require an image rebuild:
+## Systemd Service
+
+Stubert runs as a native systemd service with journal integration, automatic restarts, and standard service management.
+
+### Create the unit file
+
+Create `/etc/systemd/system/stubert.service`:
+
+```ini
+[Unit]
+Description=Stubert AI Agent Service
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+ExecStart=/path/to/stubert/target/release/stubert --runtime-dir /path/to/stubert/config
+Restart=on-failure
+RestartSec=5
+TimeoutStopSec=30
+
+# Run as your user — needs access to ~/.claude auth
+User=youruser
+Group=yourgroup
+
+# Claude CLI needs HOME and PATH to find node/claude
+Environment=HOME=/home/youruser
+Environment=PATH=/usr/local/bin:/usr/bin:/bin
+
+# Load bot tokens and secrets from .env
+EnvironmentFile=/path/to/stubert/config/.env
+
+[Install]
+WantedBy=multi-user.target
+```
+
+Adjust the paths, user/group, and `PATH` to match your system. The `PATH` must include wherever `claude` and `node` are installed.
+
+### Enable and start
 
 ```bash
-docker build -t stubert:local .
-docker rm -f stubert
-# Re-run the docker run command from step 7
+sudo systemctl daemon-reload
+sudo systemctl enable stubert
+sudo systemctl start stubert
 ```
+
+### Managing the service
+
+```bash
+systemctl status stubert          # check status
+journalctl -u stubert -f          # tail logs
+sudo systemctl restart stubert    # restart after rebuilding
+```
+
+### NixOS
+
+On NixOS, declare the service in your configuration instead of writing a unit file manually. Example module:
+
+```nix
+{ lib, pkgs, ... }:
+
+let
+  repoDir = "/home/youruser/stubert";
+  configDir = "${repoDir}/config";
+  binary = "${repoDir}/target/release/stubert";
+in
+{
+  systemd.services.stubert = {
+    description = "Stubert AI Agent Service";
+    after = [ "network-online.target" ];
+    wants = [ "network-online.target" ];
+    wantedBy = [ "multi-user.target" ];
+
+    serviceConfig = {
+      Type = "simple";
+      ExecStart = "${binary} --runtime-dir ${configDir}";
+      Restart = "on-failure";
+      RestartSec = 5;
+      User = "youruser";
+      Group = "users";
+      Environment = [
+        "HOME=/home/youruser"
+        "PATH=${lib.makeBinPath [ pkgs.claude-code pkgs.nodejs ]}:/run/current-system/sw/bin"
+      ];
+      EnvironmentFile = "${configDir}/.env";
+    };
+  };
+}
+```
+
+Import this module in your flake/configuration and run `nixos-rebuild switch`.
 
 ## Running Tests
 
 ```bash
 # All unit + integration tests
-docker run --rm -v ./src:/app/src -v ./tests:/app/tests stubert:local test
+cargo test
 
 # Specific module
-docker run --rm -v ./src:/app/src stubert:local test --lib gateway::session
+cargo test --lib gateway::session
 
 # Integration tests (mocked Claude CLI, full Gateway pipeline)
-docker run --rm -v ./src:/app/src -v ./tests:/app/tests stubert:local test --test gateway_integration
-
-# Live CLI tests (real Claude CLI, needs auth mounts)
-docker run --rm \
-  -v ./src:/app/src \
-  -v ./tests:/app/tests \
-  -v "$HOME/.claude":/root/.claude \
-  -v "$HOME/.claude.json":/root/.claude.json \
-  stubert:local test --test live_cli -- --ignored
-```
-
-If you have a local Rust toolchain, you can also run tests directly:
-
-```bash
-cargo test
 cargo test --test gateway_integration
+
+# Live CLI tests (real Claude CLI, requires auth)
 cargo test --test live_cli -- --ignored
 ```
 
@@ -318,157 +375,6 @@ Stubert exposes an HTTP health endpoint at `GET /health` on the configured port 
 - **`inflight_calls`** — sessions currently waiting on a Claude CLI response
 - **`last_heartbeat`** / **`last_cron_execution`** — ISO 8601 timestamps of the most recent successful execution, or `null` if none yet
 
-## Docker Details
-
-The image contains the Rust toolchain and pre-compiled dependencies but not the application source — `src/` is mounted at runtime. Code changes only require a container restart, not an image rebuild.
-
-### Volume mounts
-
-| Host Path | Container Path | Purpose |
-|-----------|---------------|---------|
-| `./src` | `/app/src` | Live source code (compiled on startup) |
-| `./config` | `/data` | Runtime directory (config, memory, history, logs, sessions) |
-| `$HOME/.claude` | `/root/.claude` | Claude Code authentication token |
-| `$HOME/.claude.json` | `/root/.claude.json` | Claude Code authentication metadata |
-
-### Entrypoint modes
-
-| Command | What It Does |
-|---------|-------------|
-| `docker run stubert:local` | Start the service (default: `serve`) |
-| `docker run stubert:local test` | Run all tests |
-| `docker run stubert:local test --lib gateway::session` | Run specific test module |
-| `docker run stubert:local bash` | Interactive shell |
-
-### Networking
-
-The health endpoint listens on port 8484. With `--network=host` (recommended for production), no port mapping is needed. For development without host networking:
-
-```bash
-docker run --rm -p 8484:8484 \
-  -v ./src:/app/src \
-  -v ./config:/data \
-  -v "$HOME/.claude":/root/.claude \
-  -v "$HOME/.claude.json":/root/.claude.json \
-  stubert:local
-```
-
-See `design-docs/docker.md` for full details on build caching, rootless Docker, and NixOS deployment.
-
-## Systemd Service
-
-Stubert can run as a native systemd service instead of (or alongside) Docker. This avoids volume mount permission issues and gives you journal integration, automatic restarts, and standard service management.
-
-### Prerequisites
-
-- Rust toolchain (to build the release binary)
-- Node.js and Claude Code CLI (the subprocess needs these at runtime)
-- Claude Code authenticated for the user that will run the service (`claude login`)
-
-### Build the binary
-
-```bash
-cargo build --release
-```
-
-The binary is at `target/release/stubert`. Rebuild after code changes, then restart the service.
-
-### Create the unit file
-
-Create `/etc/systemd/system/stubert.service`:
-
-```ini
-[Unit]
-Description=Stubert AI Agent Service
-After=network-online.target
-Wants=network-online.target
-
-[Service]
-Type=simple
-ExecStart=/path/to/stubert/target/release/stubert --runtime-dir /path/to/stubert/config
-Restart=on-failure
-RestartSec=5
-TimeoutStopSec=30
-
-# Run as your user — needs access to ~/.claude auth
-User=youruser
-Group=yourgroup
-
-# Claude CLI needs HOME and PATH to find node/claude
-Environment=HOME=/home/youruser
-Environment=PATH=/usr/local/bin:/usr/bin:/bin
-
-# Load bot tokens and secrets from .env
-EnvironmentFile=/path/to/stubert/config/.env
-
-[Install]
-WantedBy=multi-user.target
-```
-
-Adjust the paths, user/group, and `PATH` to match your system. The `PATH` must include wherever `claude` and `node` are installed.
-
-### Enable and start
-
-```bash
-sudo systemctl daemon-reload
-sudo systemctl enable stubert
-sudo systemctl start stubert
-```
-
-### Managing the service
-
-```bash
-systemctl status stubert          # check status
-journalctl -u stubert -f          # tail logs
-sudo systemctl restart stubert    # restart after rebuilding
-```
-
-### Deploy workflow
-
-The typical cycle for code changes:
-
-```bash
-cargo build --release && sudo systemctl restart stubert
-```
-
-### NixOS
-
-On NixOS, declare the service in your configuration instead of writing a unit file manually. Example module:
-
-```nix
-{ lib, pkgs, ... }:
-
-let
-  repoDir = "/home/youruser/stubert";
-  configDir = "${repoDir}/config";
-  binary = "${repoDir}/target/release/stubert";
-in
-{
-  systemd.services.stubert = {
-    description = "Stubert AI Agent Service";
-    after = [ "network-online.target" ];
-    wants = [ "network-online.target" ];
-    wantedBy = [ "multi-user.target" ];
-
-    serviceConfig = {
-      Type = "simple";
-      ExecStart = "${binary} --runtime-dir ${configDir}";
-      Restart = "on-failure";
-      RestartSec = 5;
-      User = "youruser";
-      Group = "users";
-      Environment = [
-        "HOME=/home/youruser"
-        "PATH=${lib.makeBinPath [ pkgs.claude-code pkgs.nodejs ]}:/run/current-system/sw/bin"
-      ];
-      EnvironmentFile = "${configDir}/.env";
-    };
-  };
-}
-```
-
-Import this module in your flake/configuration and run `nixos-rebuild switch`.
-
 ## Project Structure
 
 ```
@@ -497,20 +403,4 @@ src/
 │   ├── history.rs           # HistoryWriter (daily transcripts, search)
 │   └── session.rs           # Session + SessionManager (message queue, persistence, inactivity timers)
 └── logging.rs               # setup_logging(), TelegramTransientFilter
-```
-
-## Local Development
-
-If you have a local Rust toolchain, you can build and test without Docker:
-
-### Prerequisites
-
-- Rust toolchain (rustc, cargo)
-- A C compiler (`gcc`) and `pkg-config`
-
-### Build & test
-
-```bash
-cargo build
-cargo test
 ```

@@ -121,7 +121,7 @@ If the input doesn't match a known alias, `resolve_model` returns it unchanged (
 
 ## CLI Binary Path
 
-The `cli_path` field in config defaults to `"claude"` (found via `$PATH`). It can be overridden with an absolute path for environments where the CLI isn't on `$PATH` — Docker containers, systemd services, NixOS.
+The `cli_path` field in config defaults to `"claude"` (found via `$PATH`). It can be overridden with an absolute path for environments where the CLI isn't on `$PATH` — systemd services, NixOS.
 
 ```yaml
 claude:
