@@ -10,7 +10,7 @@ use uuid::Uuid;
 
 use crate::adapters::PlatformAdapter;
 use crate::config::types::{ClaudeConfig, SchedulerConfig};
-use crate::gateway::claude_cli::ClaudeCallParams;
+use crate::gateway::claude_cli::{resolve_model, ClaudeCallParams};
 use crate::gateway::core::ClaudeCaller;
 
 // ---- Task Config Types ----
@@ -30,6 +30,8 @@ pub struct TaskConfig {
     pub allowed_tools: Vec<String>,
     #[serde(default)]
     pub add_dirs: Vec<String>,
+    #[serde(default)]
+    pub model: Option<String>,
     #[serde(default)]
     pub notify: Option<NotifyConfig>,
     #[serde(default = "default_on_failure")]
@@ -329,7 +331,7 @@ impl TaskScheduler {
             is_new_session: true,
             allowed_tools,
             add_dirs,
-            model: None,
+            model: Some(resolve_model(task.model.as_deref().unwrap_or("sonnet"))),
             append_system_prompt: None,
             env_file_path: self.env_file_path.clone(),
             timeout_secs: self.timeout_secs,
@@ -411,6 +413,7 @@ mod tests {
             prompt: "Do something".to_string(),
             allowed_tools: vec!["Bash(read-only)".to_string(), "Read".to_string()],
             add_dirs: vec![],
+            model: None,
             notify: None,
             on_failure: "log".to_string(),
         }

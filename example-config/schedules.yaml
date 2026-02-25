@@ -1,14 +1,22 @@
 # Stubert Scheduled Tasks
 # Cron format: minute hour day month day_of_week
 # Each task gets an ephemeral Claude session (never resumed).
+#
+# notify: Where to send the task's output. When present, Claude's response is
+#         always announced on success. Failure notifications are controlled
+#         separately by on_failure.
+#
+# on_failure: What to do when a task fails. "log" (default) only writes to the
+#             job log. "notify" also sends the error to the notify target.
 
 tasks:
   morning-summary:
     schedule: "0 8 * * *"                 # Daily at 8:00 AM
     prompt: "Summarize any notable system events from the last 24 hours."
     allowed_tools: ["Bash(read-only)", "Read", "Glob", "Grep"]
-    on_failure: notify                     # "notify" or "log" (default: log)
-    notify:
+    model: haiku                           # optional (default: sonnet)
+    on_failure: notify                     # also notify on failure (default: log)
+    notify:                                # announce results here
       platform: telegram
       chat_id: "123456789"
 
@@ -17,3 +25,5 @@ tasks:
     prompt: "Check disk usage and report any directories over 1GB in /tmp."
     allowed_tools: ["Bash(read-only)", "Read"]
     add_dirs: ["/tmp"]
+    # no model — defaults to sonnet
+    # no notify — results are only written to the job log

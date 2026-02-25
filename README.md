@@ -338,6 +338,7 @@ tasks:
     schedule: "0 8 * * *"
     prompt: "Summarize any notable system events from the last 24 hours."
     allowed_tools: ["Bash(read-only)", "Read", "Glob", "Grep"]
+    model: haiku
     on_failure: notify
     notify:
       platform: telegram
@@ -352,7 +353,8 @@ tasks:
 
 - **Ephemeral sessions:** Each execution gets a fresh UUID (never resumed).
 - **Concurrency control:** Max 1 concurrent instance per task — overlapping triggers are skipped.
-- **Notifications:** When `notify` is configured, success results are sent to the specified platform/chat. Failure notifications only send when `on_failure: notify` (default is `log`).
+- **Model:** Per-task `model` field accepts an alias (`sonnet`, `opus`, `haiku`) or full model ID. Defaults to `sonnet`.
+- **Notifications:** `notify` sets the destination for announcing task output — when present, Claude's response is always sent on success. Failures are only announced when `on_failure: notify` (default is `log`, which only writes to the job log).
 - **Per-task logging:** Each task gets its own log file in `job_log_dir` with size-based rotation.
 - **Cron format:** Standard 5-field — `minute hour day month day_of_week`. Validated at startup.
 

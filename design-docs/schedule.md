@@ -12,6 +12,7 @@ tasks:
     schedule: "0 8 * * *"
     prompt: "Summarize any notable system events from the last 24 hours."
     allowed_tools: ["Bash(read-only)", "Read", "Glob", "Grep"]
+    model: haiku
     on_failure: notify
     notify:
       platform: telegram
@@ -34,6 +35,7 @@ pub struct TaskConfig {
     pub prompt: String,
     pub allowed_tools: Vec<String>,
     pub add_dirs: Vec<String>,        // default: empty
+    pub model: Option<String>,        // default: sonnet (alias or full model ID)
     pub notify: Option<NotifyConfig>, // default: None
     pub on_failure: String,           // "log" (default) or "notify"
 }
@@ -162,7 +164,7 @@ Loggers are created lazily — the first execution of a task creates its log fil
 
 ## Notifications
 
-When `notify` is configured on a task:
+`notify` sets the destination for announcing task output. When present, Claude's response is **always** sent on success — this is the primary use case for tasks like daily summaries that should report their results. `on_failure` separately controls whether errors are also announced.
 
 ```yaml
 notify:
@@ -172,8 +174,9 @@ notify:
 
 The scheduler looks up the adapter by platform name and calls `adapter.send_message(chat_id, text)`.
 
-**Success notifications:** Sent with Claude's response text.
-**Failure notifications:** Only sent when `on_failure: notify`. Includes the error message.
+**Success:** Always announced when `notify` is configured (sends Claude's response text).
+**Failure + `on_failure: notify`:** Error is announced to the same `notify` target.
+**Failure + `on_failure: log` (default):** Error is only written to the job log, no announcement.
 
 If the adapter is not registered or `send_message` fails, the notification failure is logged but doesn't affect the task result.
 
