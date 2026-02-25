@@ -10,13 +10,15 @@ use crate::config::types::StubbertConfig;
 use crate::gateway::claude_cli::{display_model, resolve_model, ClaudeCallParams};
 use crate::gateway::core::{build_platform_context, ClaudeCaller};
 use crate::gateway::history::HistoryWriter;
+use crate::gateway::scheduler::{format_schedule_list, TaskScheduler};
 use crate::gateway::session::SessionManager;
 use crate::gateway::skills::SkillRegistry;
 
 // ---- Constants ----
 
 const KNOWN_COMMANDS: &[&str] = &[
-    "new", "context", "restart", "models", "skill", "history", "status", "heartbeat", "help",
+    "new", "context", "restart", "models", "skill", "history", "status", "heartbeat", "schedules",
+    "help",
 ];
 
 const NEW_SESSION_GREETING: &str = "A new session has began, please greet the user.";
@@ -84,6 +86,7 @@ fn cmd_help() -> String {
         "/history <query> — Search conversation history",
         "/status — Show bot status",
         "/heartbeat — Trigger a heartbeat check",
+        "/schedules — Show scheduled tasks",
         "/help — Show this help message",
     ]
     .join("\n")
@@ -227,6 +230,13 @@ async fn cmd_heartbeat(heartbeat_trigger: &Option<Arc<dyn HeartbeatTrigger>>) ->
                 Err(e) => format!("Heartbeat failed: {e}"),
             }
         }
+    }
+}
+
+fn cmd_schedules(scheduler: &Option<Arc<TaskScheduler>>) -> String {
+    match scheduler {
+        None => "No schedules configured.".to_string(),
+        Some(scheduler) => format_schedule_list(scheduler.tasks()),
     }
 }
 
@@ -482,6 +492,7 @@ pub async fn dispatch_command(
     config: StubbertConfig,
     start_time: Option<Instant>,
     heartbeat_trigger: Option<Arc<dyn HeartbeatTrigger>>,
+    scheduler: Option<Arc<TaskScheduler>>,
 ) {
     let platform = &msg.platform;
     let chat_id = &msg.chat_id;
@@ -513,6 +524,7 @@ pub async fn dispatch_command(
             None // Already sent
         }
         "heartbeat" => Some(cmd_heartbeat(&heartbeat_trigger).await),
+        "schedules" => Some(cmd_schedules(&scheduler)),
         "new" => {
             cmd_new(
                 platform,
@@ -732,6 +744,11 @@ mod tests {
         fn just_slash() {
             assert_eq!(parse_command("/"), None);
         }
+
+        #[test]
+        fn schedules_command() {
+            assert_eq!(parse_command("/schedules"), Some(("schedules", "")));
+        }
     }
 
     // ---- cmd_help tests ----
@@ -929,6 +946,80 @@ mod tests {
         async fn no_heartbeat_system() {
             let result = cmd_heartbeat(&None).await;
             assert_eq!(result, HEARTBEAT_UNAVAILABLE);
+        }
+    }
+
+    // ---- cmd_schedules tests ----
+
+    mod test_cmd_schedules {
+        use super::*;
+        use crate::gateway::core::MockClaudeCaller;
+        use crate::gateway::scheduler::{TaskConfig, TaskScheduler};
+        use crate::config::types::{ClaudeConfig, SchedulerConfig};
+
+        fn make_scheduler(tasks: Vec<TaskConfig>) -> Option<Arc<TaskScheduler>> {
+            let dir = TempDir::new().unwrap();
+            let sched_config = SchedulerConfig {
+                schedules_file: "schedules.yaml".to_string(),
+                job_log_dir: "logs/cron".to_string(),
+                job_log_max_bytes: Some(5_242_880),
+                job_log_backup_count: Some(3),
+            };
+            let claude_config = ClaudeConfig {
+                cli_path: "claude".to_string(),
+                timeout_secs: 300,
+                default_model: "claude-sonnet-4-6".to_string(),
+                working_directory: dir.path().to_str().unwrap().to_string(),
+                env_file_path: ".env".to_string(),
+                allowed_tools: HashMap::new(),
+                add_dirs: vec![],
+                platform_readmes: HashMap::new(),
+            };
+            let mock = MockClaudeCaller::new();
+            let adapters = Arc::new(Mutex::new(HashMap::new()));
+
+            Some(Arc::new(
+                TaskScheduler::new(tasks, &sched_config, &claude_config, Arc::new(mock), adapters)
+                    .unwrap(),
+            ))
+        }
+
+        fn make_task(name: &str, schedule: &str, enabled: bool) -> TaskConfig {
+            TaskConfig {
+                name: name.to_string(),
+                schedule: schedule.to_string(),
+                prompt: "Do something".to_string(),
+                allowed_tools: vec![],
+                add_dirs: vec![],
+                model: None,
+                notify: None,
+                on_failure: "log".to_string(),
+                enabled,
+            }
+        }
+
+        #[test]
+        fn no_scheduler_returns_message() {
+            let result = cmd_schedules(&None);
+            assert_eq!(result, "No schedules configured.");
+        }
+
+        #[test]
+        fn with_scheduler_returns_listing() {
+            let tasks = vec![make_task("morning-summary", "0 8 * * *", true)];
+            let scheduler = make_scheduler(tasks);
+            let result = cmd_schedules(&scheduler);
+            assert!(result.contains("morning-summary"));
+            assert!(result.contains("0 8 * * *"));
+        }
+
+        #[test]
+        fn with_disabled_task_shows_disabled() {
+            let tasks = vec![make_task("weekly-cleanup", "0 3 * * 7", false)];
+            let scheduler = make_scheduler(tasks);
+            let result = cmd_schedules(&scheduler);
+            assert!(result.contains("weekly-cleanup"));
+            assert!(result.contains("(disabled)"));
         }
     }
 
@@ -1260,6 +1351,7 @@ mod tests {
                 make_config(),
                 None,
                 None,
+                None,
             )
             .await;
 
@@ -1290,6 +1382,7 @@ mod tests {
                 empty_skill_registry(),
                 make_config(),
                 Some(Instant::now()),
+                None,
                 None,
             )
             .await;

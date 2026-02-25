@@ -558,6 +558,7 @@ async fn handle_message(
     skill_registry: Arc<SkillRegistry>,
     heartbeat_trigger: Option<Arc<dyn HeartbeatTrigger>>,
     start_time: Option<Instant>,
+    scheduler: Option<Arc<TaskScheduler>>,
 ) {
     // Check for slash commands — dispatch immediately, bypass queue
     if let Some(text) = &msg.text {
@@ -584,6 +585,7 @@ async fn handle_message(
                 config,
                 start_time,
                 heartbeat_trigger,
+                scheduler,
             )
             .await;
             return;
@@ -745,6 +747,30 @@ impl Gateway {
             .unwrap_or(FILES_CLEANUP_DAYS);
         cleanup_old_files(&self.submitted_files_dir, cleanup_days);
 
+        // Create scheduler if configured (don't start loops yet — handlers need it)
+        if let Some(sched_config) = &self.config.scheduler {
+            let schedules_path = PathBuf::from(&self.config.claude.working_directory)
+                .join(&sched_config.schedules_file);
+            match load_schedules(&schedules_path) {
+                Ok(tasks) if !tasks.is_empty() => {
+                    match TaskScheduler::new(
+                        tasks,
+                        sched_config,
+                        &self.config.claude,
+                        Arc::clone(&self.claude_caller),
+                        Arc::clone(&self.adapters),
+                    ) {
+                        Ok(scheduler) => {
+                            self.scheduler = Some(Arc::new(scheduler));
+                        }
+                        Err(e) => tracing::error!(error = %e, "failed to create scheduler"),
+                    }
+                }
+                Ok(_) => tracing::info!("no scheduled tasks configured"),
+                Err(e) => tracing::warn!(error = %e, "failed to load schedules"),
+            }
+        }
+
         // Set message handler on all adapters and start them
         {
             let adapters = self.adapters.lock().await;
@@ -762,31 +788,10 @@ impl Gateway {
             }
         }
 
-        // Start scheduler if configured
-        if let Some(sched_config) = &self.config.scheduler {
-            let schedules_path = PathBuf::from(&self.config.claude.working_directory)
-                .join(&sched_config.schedules_file);
-            match load_schedules(&schedules_path) {
-                Ok(tasks) if !tasks.is_empty() => {
-                    match TaskScheduler::new(
-                        tasks,
-                        sched_config,
-                        &self.config.claude,
-                        Arc::clone(&self.claude_caller),
-                        Arc::clone(&self.adapters),
-                    ) {
-                        Ok(scheduler) => {
-                            let scheduler = Arc::new(scheduler);
-                            scheduler.start();
-                            self.scheduler = Some(scheduler);
-                            tracing::info!("scheduler started");
-                        }
-                        Err(e) => tracing::error!(error = %e, "failed to create scheduler"),
-                    }
-                }
-                Ok(_) => tracing::info!("no scheduled tasks configured"),
-                Err(e) => tracing::warn!(error = %e, "failed to load schedules"),
-            }
+        // Start scheduler task loops
+        if let Some(scheduler) = &self.scheduler {
+            scheduler.start();
+            tracing::info!("scheduler started");
         }
 
         // Start health server
@@ -889,6 +894,7 @@ impl Gateway {
         let sr = self.skill_registry.clone();
         let ht = self.heartbeat_trigger.clone();
         let start_time = self.start_time;
+        let scheduler = self.scheduler.clone();
 
         Arc::new(move |msg| {
             let sm = sm.clone();
@@ -900,10 +906,12 @@ impl Gateway {
             let transcriber = transcriber.clone();
             let sr = sr.clone();
             let ht = ht.clone();
+            let scheduler = scheduler.clone();
 
             Box::pin(async move {
                 handle_message(
                     msg, sm, adapters, cc, hw, tasks, config, transcriber, sr, ht, start_time,
+                    scheduler,
                 )
                 .await;
             })
@@ -2040,7 +2048,7 @@ mod tests {
             handle_message(
                 msg, s.session_manager.clone(), s.adapters, cc, s.history_writer,
                 s.consumer_tasks.clone(), s.config, None,
-                s.skill_registry, None, None,
+                s.skill_registry, None, None, None,
             )
             .await;
 
@@ -2070,7 +2078,7 @@ mod tests {
             handle_message(
                 msg, s.session_manager.clone(), s.adapters, cc, s.history_writer,
                 s.consumer_tasks.clone(), s.config, None,
-                s.skill_registry, None, None,
+                s.skill_registry, None, None, None,
             )
             .await;
 
@@ -2089,7 +2097,7 @@ mod tests {
             handle_message(
                 msg, s.session_manager.clone(), s.adapters, cc, s.history_writer,
                 s.consumer_tasks.clone(), s.config, None,
-                s.skill_registry, None, None,
+                s.skill_registry, None, None, None,
             )
             .await;
 
@@ -2108,7 +2116,7 @@ mod tests {
             handle_message(
                 msg, s.session_manager.clone(), s.adapters, cc, s.history_writer,
                 s.consumer_tasks.clone(), s.config, None,
-                s.skill_registry, None, None,
+                s.skill_registry, None, None, None,
             )
             .await;
 
@@ -2131,14 +2139,14 @@ mod tests {
             handle_message(
                 msg1, s.session_manager.clone(), s.adapters.clone(), cc.clone(),
                 s.history_writer.clone(), s.consumer_tasks.clone(), s.config.clone(), None,
-                s.skill_registry.clone(), None, None,
+                s.skill_registry.clone(), None, None, None,
             )
             .await;
 
             handle_message(
                 msg2, s.session_manager.clone(), s.adapters.clone(), cc,
                 s.history_writer.clone(), s.consumer_tasks.clone(), s.config.clone(), None,
-                s.skill_registry.clone(), None, None,
+                s.skill_registry.clone(), None, None, None,
             )
             .await;
 
@@ -2179,14 +2187,14 @@ mod tests {
             handle_message(
                 msg1, s.session_manager.clone(), s.adapters.clone(), cc.clone(),
                 s.history_writer.clone(), s.consumer_tasks.clone(), s.config.clone(), None,
-                s.skill_registry.clone(), None, None,
+                s.skill_registry.clone(), None, None, None,
             )
             .await;
 
             handle_message(
                 msg2, s.session_manager.clone(), s.adapters.clone(), cc,
                 s.history_writer.clone(), s.consumer_tasks.clone(), s.config.clone(), None,
-                s.skill_registry.clone(), None, None,
+                s.skill_registry.clone(), None, None, None,
             )
             .await;
 

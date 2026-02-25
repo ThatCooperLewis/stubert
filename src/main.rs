@@ -12,6 +12,7 @@ use stubert::gateway::commands::HeartbeatTrigger;
 use stubert::gateway::core::{Gateway, RealClaudeCaller};
 use stubert::gateway::heartbeat::HeartbeatRunner;
 use stubert::gateway::history::HistoryWriter;
+use stubert::gateway::scheduler::{format_schedule_list, load_schedules};
 use stubert::gateway::session::SessionManager;
 use stubert::gateway::skills::SkillRegistry;
 use stubert::logging::setup_logging;
@@ -39,6 +40,12 @@ enum Command {
     Status,
     /// Rebuild (cargo build --release) then restart the service
     Rebuild,
+    /// Show configured scheduled tasks
+    Schedules {
+        /// Path to the runtime directory
+        #[arg(long, default_value = ".")]
+        runtime_dir: PathBuf,
+    },
 }
 
 #[tokio::main]
@@ -55,6 +62,7 @@ async fn main() -> ExitCode {
         Command::Restart => restart(),
         Command::Status => status().await,
         Command::Rebuild => rebuild(),
+        Command::Schedules { runtime_dir } => schedules(runtime_dir),
     }
 }
 
@@ -109,6 +117,41 @@ fn rebuild() -> ExitCode {
             ExitCode::FAILURE
         }
     }
+}
+
+fn schedules(runtime_dir: PathBuf) -> ExitCode {
+    std::env::set_current_dir(&runtime_dir).expect("failed to set working directory");
+    dotenvy::dotenv().ok();
+
+    let config = match load_config(Path::new("config.yaml")) {
+        Ok(c) => c,
+        Err(e) => {
+            eprintln!("failed to load config: {e}");
+            return ExitCode::FAILURE;
+        }
+    };
+
+    let sched_config = match &config.scheduler {
+        Some(sc) => sc,
+        None => {
+            eprintln!("No scheduler configured.");
+            return ExitCode::SUCCESS;
+        }
+    };
+
+    let schedules_path =
+        PathBuf::from(&config.claude.working_directory).join(&sched_config.schedules_file);
+
+    let tasks = match load_schedules(&schedules_path) {
+        Ok(t) => t,
+        Err(e) => {
+            eprintln!("failed to load schedules: {e}");
+            return ExitCode::FAILURE;
+        }
+    };
+
+    eprintln!("{}", format_schedule_list(&tasks));
+    ExitCode::SUCCESS
 }
 
 fn restart() -> ExitCode {

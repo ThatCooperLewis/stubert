@@ -36,10 +36,16 @@ pub struct TaskConfig {
     pub notify: Option<NotifyConfig>,
     #[serde(default = "default_on_failure")]
     pub on_failure: String,
+    #[serde(default = "default_enabled")]
+    pub enabled: bool,
 }
 
 fn default_on_failure() -> String {
     "log".to_string()
+}
+
+fn default_enabled() -> bool {
+    true
 }
 
 #[derive(Deserialize)]
@@ -67,6 +73,69 @@ pub fn load_schedules(path: &Path) -> Result<Vec<TaskConfig>, String> {
         .collect();
 
     Ok(tasks)
+}
+
+// ---- format_schedule_list ----
+
+pub fn format_schedule_list(tasks: &[TaskConfig]) -> String {
+    if tasks.is_empty() {
+        return "No scheduled tasks.".to_string();
+    }
+
+    let mut sorted: Vec<&TaskConfig> = tasks.iter().collect();
+    sorted.sort_by(|a, b| a.name.cmp(&b.name));
+
+    let max_name = sorted.iter().map(|t| t.name.len()).max().unwrap_or(0);
+    let max_sched = sorted.iter().map(|t| t.schedule.len()).max().unwrap_or(0);
+
+    let mut lines = Vec::new();
+    for task in &sorted {
+        let status = if !task.enabled {
+            "(disabled)".to_string()
+        } else {
+            match parse_cron(&task.schedule) {
+                Ok(schedule) => match schedule.upcoming(chrono::Local).next() {
+                    Some(next) => {
+                        let now = chrono::Local::now();
+                        let duration = next - now;
+                        let time_str = next.format("%-I:%M%P").to_string();
+                        format!("{time_str} (in {})", format_relative_duration(duration))
+                    }
+                    None => "no upcoming".to_string(),
+                },
+                Err(_) => "invalid cron".to_string(),
+            }
+        };
+
+        lines.push(format!(
+            "{:<name_w$}  {:<sched_w$}  {status}",
+            task.name,
+            task.schedule,
+            name_w = max_name,
+            sched_w = max_sched,
+        ));
+    }
+
+    lines.join("\n")
+}
+
+fn format_relative_duration(duration: chrono::TimeDelta) -> String {
+    let total_secs = duration.num_seconds();
+    if total_secs < 60 {
+        return "< 1m".to_string();
+    }
+
+    let days = total_secs / 86400;
+    let hours = (total_secs % 86400) / 3600;
+    let minutes = (total_secs % 3600) / 60;
+
+    if days > 0 {
+        format!("{days}d {hours}h")
+    } else if hours > 0 {
+        format!("{hours}h {minutes}m")
+    } else {
+        format!("{minutes}m")
+    }
 }
 
 // ---- parse_cron ----
@@ -228,6 +297,10 @@ impl TaskScheduler {
         let mut txs = self.shutdown_txs.lock().unwrap();
 
         for task in &self.tasks {
+            if !task.enabled {
+                continue;
+            }
+
             let (tx, rx) = tokio::sync::oneshot::channel();
             txs.push(tx);
 
@@ -369,6 +442,10 @@ impl TaskScheduler {
         }
     }
 
+    pub fn tasks(&self) -> &[TaskConfig] {
+        &self.tasks
+    }
+
     pub fn last_execution(&self) -> Option<Instant> {
         *self.last_execution.lock().unwrap()
     }
@@ -416,6 +493,7 @@ mod tests {
             model: None,
             notify: None,
             on_failure: "log".to_string(),
+            enabled: true,
         }
     }
 
@@ -551,6 +629,47 @@ tasks:
         }
 
         #[test]
+        fn enabled_defaults_to_true() {
+            let dir = TempDir::new().unwrap();
+            let path = dir.path().join("schedules.yaml");
+            std::fs::write(
+                &path,
+                r#"
+tasks:
+  basic-task:
+    schedule: "0 8 * * *"
+    prompt: "Do something"
+    allowed_tools: ["Read"]
+"#,
+            )
+            .unwrap();
+
+            let tasks = load_schedules(&path).unwrap();
+            assert!(tasks[0].enabled);
+        }
+
+        #[test]
+        fn enabled_false_parsed() {
+            let dir = TempDir::new().unwrap();
+            let path = dir.path().join("schedules.yaml");
+            std::fs::write(
+                &path,
+                r#"
+tasks:
+  disabled-task:
+    schedule: "0 8 * * *"
+    prompt: "Do something"
+    allowed_tools: ["Read"]
+    enabled: false
+"#,
+            )
+            .unwrap();
+
+            let tasks = load_schedules(&path).unwrap();
+            assert!(!tasks[0].enabled);
+        }
+
+        #[test]
         fn task_name_populated_from_key() {
             let dir = TempDir::new().unwrap();
             let path = dir.path().join("schedules.yaml");
@@ -680,6 +799,111 @@ tasks:
             logger.log("task-c", "OK", 1.0, Some("Created lazily"));
             assert!(log_dir.exists());
             assert!(log_dir.join("task-c.log").exists());
+        }
+    }
+
+    // ---- format_schedule_list tests ----
+
+    mod test_format_schedule_list {
+        use super::*;
+
+        #[test]
+        fn empty_list_returns_message() {
+            let result = format_schedule_list(&[]);
+            assert_eq!(result, "No scheduled tasks.");
+        }
+
+        #[test]
+        fn enabled_task_shows_next_time_and_relative() {
+            let task = make_task("morning-summary");
+            let result = format_schedule_list(&[task]);
+
+            assert!(result.contains("morning-summary"));
+            assert!(result.contains("0 8 * * *"));
+            assert!(result.contains("(in "));
+        }
+
+        #[test]
+        fn disabled_task_shows_disabled() {
+            let mut task = make_task("weekly-cleanup");
+            task.enabled = false;
+            let result = format_schedule_list(&[task]);
+
+            assert!(result.contains("weekly-cleanup"));
+            assert!(result.contains("(disabled)"));
+            assert!(!result.contains("(in "));
+        }
+
+        #[test]
+        fn mixed_enabled_and_disabled() {
+            let enabled = make_task("aaa-enabled");
+            let mut disabled = make_task("zzz-disabled");
+            disabled.enabled = false;
+            let result = format_schedule_list(&[disabled, enabled]);
+
+            let lines: Vec<&str> = result.lines().collect();
+            assert_eq!(lines.len(), 2);
+            // Sorted alphabetically
+            assert!(lines[0].contains("aaa-enabled"));
+            assert!(lines[0].contains("(in "));
+            assert!(lines[1].contains("zzz-disabled"));
+            assert!(lines[1].contains("(disabled)"));
+        }
+
+        #[test]
+        fn tasks_sorted_alphabetically() {
+            let mut task_c = make_task("charlie");
+            task_c.schedule = "0 12 * * *".to_string();
+            let task_a = make_task("alpha");
+            let mut task_b = make_task("bravo");
+            task_b.schedule = "30 6 * * *".to_string();
+
+            let result = format_schedule_list(&[task_c, task_a, task_b]);
+            let lines: Vec<&str> = result.lines().collect();
+            assert_eq!(lines.len(), 3);
+            assert!(lines[0].contains("alpha"));
+            assert!(lines[1].contains("bravo"));
+            assert!(lines[2].contains("charlie"));
+        }
+    }
+
+    mod test_format_relative_duration {
+        use super::*;
+
+        #[test]
+        fn less_than_a_minute() {
+            let d = chrono::TimeDelta::seconds(30);
+            assert_eq!(format_relative_duration(d), "< 1m");
+        }
+
+        #[test]
+        fn minutes_only() {
+            let d = chrono::TimeDelta::minutes(45);
+            assert_eq!(format_relative_duration(d), "45m");
+        }
+
+        #[test]
+        fn hours_and_minutes() {
+            let d = chrono::TimeDelta::hours(3) + chrono::TimeDelta::minutes(22);
+            assert_eq!(format_relative_duration(d), "3h 22m");
+        }
+
+        #[test]
+        fn days_and_hours() {
+            let d = chrono::TimeDelta::days(4) + chrono::TimeDelta::hours(12);
+            assert_eq!(format_relative_duration(d), "4d 12h");
+        }
+
+        #[test]
+        fn exact_hour() {
+            let d = chrono::TimeDelta::hours(1);
+            assert_eq!(format_relative_duration(d), "1h 0m");
+        }
+
+        #[test]
+        fn exact_day() {
+            let d = chrono::TimeDelta::days(1);
+            assert_eq!(format_relative_duration(d), "1d 0h");
         }
     }
 
