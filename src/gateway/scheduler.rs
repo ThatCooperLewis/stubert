@@ -329,8 +329,8 @@ impl TaskScheduler {
         lock: Arc<tokio::sync::Mutex<()>>,
         mut shutdown_rx: tokio::sync::oneshot::Receiver<()>,
     ) {
-        while let Some(next) = schedule.upcoming(chrono::Utc).next() {
-            let now = chrono::Utc::now();
+        while let Some(next) = schedule.upcoming(chrono::Local).next() {
+            let now = chrono::Local::now();
             let duration = (next - now).to_std().unwrap_or_default();
 
             tokio::select! {
