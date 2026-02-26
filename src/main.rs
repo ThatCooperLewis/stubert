@@ -8,7 +8,7 @@ use uuid::Uuid;
 use stubert::adapters::discord::DiscordAdapter;
 use stubert::adapters::telegram::TelegramAdapter;
 use stubert::config::load_config;
-use stubert::gateway::claude_cli::{call_claude, resolve_model, ClaudeCallParams};
+use stubert::gateway::claude_cli::{call_claude, format_context_summary, resolve_model, ClaudeCallParams};
 use stubert::gateway::commands::HeartbeatTrigger;
 use stubert::gateway::core::{Gateway, RealClaudeCaller};
 use stubert::gateway::heartbeat::HeartbeatRunner;
@@ -47,6 +47,19 @@ enum Command {
         #[arg(long)]
         runtime_dir: Option<PathBuf>,
     },
+    /// Query context window usage for a session
+    Context {
+        /// The Claude session ID to query
+        session_id: String,
+
+        /// Path to the runtime directory (auto-detected from binary location if omitted)
+        #[arg(long)]
+        runtime_dir: Option<PathBuf>,
+
+        /// Timeout in seconds
+        #[arg(long, default_value_t = 30)]
+        timeout: u64,
+    },
     /// Search the web using an isolated Claude agent
     Search {
         /// The search query
@@ -83,6 +96,17 @@ async fn main() -> ExitCode {
         Command::Rebuild => rebuild(),
         Command::Schedules { runtime_dir } => match resolve_runtime_dir(runtime_dir) {
             Ok(dir) => schedules(dir),
+            Err(e) => {
+                eprintln!("{e}");
+                ExitCode::FAILURE
+            }
+        },
+        Command::Context {
+            session_id,
+            runtime_dir,
+            timeout,
+        } => match resolve_runtime_dir(runtime_dir) {
+            Ok(dir) => context(dir, session_id, timeout).await,
             Err(e) => {
                 eprintln!("{e}");
                 ExitCode::FAILURE
@@ -280,6 +304,44 @@ on the web and present it clearly.
 - If the query is ambiguous, search for the most likely interpretation
 - Provide a direct answer — no preamble about what you're doing
 ";
+
+async fn context(runtime_dir: PathBuf, session_id: String, timeout: u64) -> ExitCode {
+    std::env::set_current_dir(&runtime_dir).expect("failed to set working directory");
+    dotenvy::dotenv().ok();
+
+    let config = match load_config(Path::new("config.yaml")) {
+        Ok(c) => c,
+        Err(e) => {
+            eprintln!("failed to load config: {e}");
+            return ExitCode::FAILURE;
+        }
+    };
+
+    let params = ClaudeCallParams {
+        prompt: "/context".to_string(),
+        session_id,
+        is_new_session: false,
+        allowed_tools: None,
+        add_dirs: None,
+        model: None,
+        append_system_prompt: None,
+        env_file_path: config.claude.env_file_path.clone(),
+        timeout_secs: timeout,
+        working_directory: config.claude.working_directory.clone(),
+        cli_path: config.claude.cli_path.clone(),
+    };
+
+    match call_claude(&params).await {
+        Ok(response) => {
+            eprintln!("{}", format_context_summary(&response.result));
+            ExitCode::SUCCESS
+        }
+        Err(e) => {
+            eprintln!("failed: {e}");
+            ExitCode::FAILURE
+        }
+    }
+}
 
 async fn search(query: Vec<String>, model: String, timeout: u64) -> ExitCode {
     let prompt = query.join(" ");

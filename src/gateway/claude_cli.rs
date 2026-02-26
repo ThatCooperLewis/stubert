@@ -60,6 +60,28 @@ pub fn display_model(model_id: &str) -> String {
     }
 }
 
+/// Parses Claude Code's `/context` markdown output and extracts model + token lines.
+/// Returns a compact summary like "Model: Sonnet 4.6\nTokens: 12,345 / 200,000".
+/// Falls back to the raw input if the expected lines are missing.
+pub fn format_context_summary(raw: &str) -> String {
+    let mut model_line = None;
+    let mut tokens_line = None;
+
+    for line in raw.lines() {
+        let trimmed = line.trim();
+        if let Some(rest) = trimmed.strip_prefix("**Model:**") {
+            model_line = Some(format!("Model:{}", rest));
+        } else if let Some(rest) = trimmed.strip_prefix("**Tokens:**") {
+            tokens_line = Some(format!("Tokens:{}", rest));
+        }
+    }
+
+    match (model_line, tokens_line) {
+        (Some(m), Some(t)) => format!("{m}\n{t}"),
+        _ => raw.to_string(),
+    }
+}
+
 pub fn build_args(params: &ClaudeCallParams) -> Vec<String> {
     let mut args = vec![
         "-p".to_string(),
@@ -259,6 +281,67 @@ mod tests {
             }
         })
         .to_string()
+    }
+
+    // -- format_context_summary tests --
+
+    mod test_format_context_summary {
+        use super::super::*;
+
+        #[test]
+        fn extracts_model_and_tokens() {
+            let raw = "\
+## Context Window Usage
+
+**Model:** Claude Sonnet 4.6 (claude-sonnet-4-6)
+**Tokens:** 12,345 / 200,000 (6.2%)
+
+### Category Breakdown
+| Category | Tokens |
+|----------|--------|
+| System prompt | 5,000 |";
+
+            let result = format_context_summary(raw);
+            assert_eq!(
+                result,
+                "Model: Claude Sonnet 4.6 (claude-sonnet-4-6)\nTokens: 12,345 / 200,000 (6.2%)"
+            );
+        }
+
+        #[test]
+        fn handles_trailing_whitespace() {
+            let raw = "**Model:** Opus 4.6  \n**Tokens:** 100 / 200  ";
+            let result = format_context_summary(raw);
+            // trim() on each line strips trailing spaces before prefix matching
+            assert_eq!(result, "Model: Opus 4.6\nTokens: 100 / 200");
+        }
+
+        #[test]
+        fn falls_back_when_model_missing() {
+            let raw = "**Tokens:** 100 / 200";
+            let result = format_context_summary(raw);
+            assert_eq!(result, raw);
+        }
+
+        #[test]
+        fn falls_back_when_tokens_missing() {
+            let raw = "**Model:** Sonnet 4.6";
+            let result = format_context_summary(raw);
+            assert_eq!(result, raw);
+        }
+
+        #[test]
+        fn falls_back_on_empty_input() {
+            let result = format_context_summary("");
+            assert_eq!(result, "");
+        }
+
+        #[test]
+        fn falls_back_on_unrelated_content() {
+            let raw = "Hello, how can I help you today?";
+            let result = format_context_summary(raw);
+            assert_eq!(result, raw);
+        }
     }
 
     // -- Model aliasing tests --

@@ -7,7 +7,7 @@ use tokio::time::Instant;
 
 use crate::adapters::{IncomingMessage, PlatformAdapter};
 use crate::config::types::StubbertConfig;
-use crate::gateway::claude_cli::{display_model, resolve_model, ClaudeCallParams};
+use crate::gateway::claude_cli::{display_model, format_context_summary, resolve_model, ClaudeCallParams};
 use crate::gateway::core::{build_platform_context, ClaudeCaller};
 use crate::gateway::history::HistoryWriter;
 use crate::gateway::scheduler::{format_schedule_list, TaskScheduler};
@@ -24,7 +24,7 @@ const KNOWN_COMMANDS: &[&str] = &[
 const NEW_SESSION_GREETING: &str = "A new session has began, please greet the user.";
 const NEW_SESSION_CONFIRMATION: &str = "New session started · model: ";
 const NEW_SESSION_GREETING_FAILED: &str = "Session started but greeting failed.";
-const CONTEXT_PROMPT: &str = "Report your current context usage: how many tokens used out of the total context window, as a percentage and raw numbers. Be brief.";
+const CONTEXT_PROMPT: &str = "/context";
 const NO_ACTIVE_SESSION: &str = "No active session.";
 const RESTARTING: &str = "Restarting...";
 const UNKNOWN_MODEL: &str = "Unknown model. Available: sonnet, opus, haiku";
@@ -408,7 +408,7 @@ async fn cmd_context(
     )
     .await
     {
-        Ok(response) => response,
+        Ok(response) => format_context_summary(&response),
         Err(e) => format!("Failed: {e}"),
     }
 }
@@ -1094,7 +1094,7 @@ mod tests {
         use super::*;
 
         #[tokio::test]
-        async fn active_session_calls_claude() {
+        async fn active_session_calls_claude_and_formats() {
             let dir = TempDir::new().unwrap();
             let mut mgr = make_session_manager(dir.path());
             mgr.get_or_create("telegram", "123");
@@ -1102,10 +1102,21 @@ mod tests {
             mgr.get_mut(&key).unwrap().mark_initiated();
             let sm = Arc::new(Mutex::new(mgr));
 
+            let raw_context = "\
+## Context Window Usage
+
+**Model:** Claude Sonnet 4.6 (claude-sonnet-4-6)
+**Tokens:** 12,345 / 200,000 (6.2%)
+
+### Category Breakdown
+| Category | Tokens |
+|----------|--------|
+| System prompt | 5,000 |";
+
             let mut mock_claude = MockClaudeCaller::new();
             mock_claude
                 .expect_call()
-                .returning(|_| claude_success("50% used (100k/200k tokens)"));
+                .returning(move |_| claude_success(raw_context));
             let cc: Arc<dyn ClaudeCaller> = Arc::new(mock_claude);
             let hw = Arc::new(HistoryWriter::new(dir.path().join("history")));
             let config = make_config();
@@ -1113,7 +1124,36 @@ mod tests {
             let result =
                 cmd_context("telegram", "123", &sm, &cc, &hw, &config).await;
 
-            assert!(result.contains("50%"));
+            assert_eq!(
+                result,
+                "Model: Claude Sonnet 4.6 (claude-sonnet-4-6)\nTokens: 12,345 / 200,000 (6.2%)"
+            );
+        }
+
+        #[tokio::test]
+        async fn sends_context_slash_command_as_prompt() {
+            let dir = TempDir::new().unwrap();
+            let mut mgr = make_session_manager(dir.path());
+            mgr.get_or_create("telegram", "123");
+            let key = SessionManager::conversation_key("telegram", "123");
+            mgr.get_mut(&key).unwrap().mark_initiated();
+            let sm = Arc::new(Mutex::new(mgr));
+
+            let prompts_seen = Arc::new(std::sync::Mutex::new(Vec::<String>::new()));
+            let ps = prompts_seen.clone();
+            let mut mock_claude = MockClaudeCaller::new();
+            mock_claude.expect_call().returning(move |params| {
+                ps.lock().unwrap().push(params.prompt.clone());
+                claude_success("context info")
+            });
+            let cc: Arc<dyn ClaudeCaller> = Arc::new(mock_claude);
+            let hw = Arc::new(HistoryWriter::new(dir.path().join("history")));
+            let config = make_config();
+
+            cmd_context("telegram", "123", &sm, &cc, &hw, &config).await;
+
+            let prompts = prompts_seen.lock().unwrap();
+            assert_eq!(prompts[0], "/context");
         }
 
         #[tokio::test]
