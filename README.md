@@ -20,7 +20,7 @@ Message Claude remotely, trigger cron jobs, and continuously run checks via Hear
 
 ## Why Stubert do?
 
-I made this with Opus 4.6 after being frustrated by the awful design of Openclaw. Security issues aside, almost everything about that program is poorly-made and very sloppy. The WebUI was nearly unusable, the JSON configuration was janky, the docs were unorganized, untruthful slop that actively encouraged you to break Anthropic's TOS. I found it was constantly bricking itself unless I overpaid in API usage for Opus 4.5+.
+I made this with Opus 4.6 after being frustrated by the awful design of Openclaw. Security issues aside, almost everything about that program is poorly-made and very sloppy. The WebUI was nearly unusable, the JSON configuration was janky, the docs were innacurate slop. I found it was constantly bricking itself unless I overpaid in API usage for Opus 4.5+.
 
 I didn't need every conceivable chat platform and model integration, I didn't want on-by-default web access, and I wanted it to use all the skills I already built for my Claude Code installation. I then learned that Claude Code can be run headless, so all I needed was an 'Openclaw' that worked specifically through Claude. So, Stubert was born!
 
