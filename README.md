@@ -1,19 +1,64 @@
 # Stubert
 
-Openclaw-inspired agent manager.
+Stubert (a nickname for my cat Stu) is an Openclaw-inspired wrapper for Claude Code. 
 
-- Fewer security nightmares
-- Uses your Claude Code subscription without breaking ToS
-- Doesn't try to reinvent the wheel (uses built-in Claude features rather than rewriting them)
+Message Claude remotely, trigger cron jobs, and continuously run checks via Heartbeats.
 
-## Getting Started
+- **Respects your intelligence**  
+  - Setup isn't over-engineered
+  - Configuration is entirely yaml-based
+- **Fewer security nightmares** 
+  - No direct internet access or high-risk skill storefront
+  - All risky features are opt-in
+  - Allows unique permissions for each chat platform and cron job
+- **Uses your Claude Code subscription without breaking ToS** 
+  - Works headlessly through Claude CLI using `claude -p`
+  - Doesn't circumvent API restrictions
+- **Doesn't try to reinvent the wheel** 
+  - All your user-level Claude Code features/skills/MCPs are enabled
+  - Passively gains more functionality as Claude Code is updated
 
-A step-by-step guide from zero to a running Stubert instance.
+## Why Stubert do?
+
+I made this with Opus 4.6 after being frustrated by the awful design of Openclaw. Security issues aside, almost everything about that program is poorly-made and very sloppy. The WebUI was nearly unusable, the JSON configuration was janky, the docs were unorganized, untruthful slop that actively encouraged you to break Anthropic's TOS. I found it was constantly bricking itself unless I overpaid in API usage for Opus 4.5+.
+
+I didn't need every conceivable chat platform and model integration, I didn't want on-by-default web access, and I wanted it to use all the skills I already built for my Claude Code installation. I then learned that Claude Code can be run headless, so all I needed was an 'Openclaw' that worked specifically through Claude. So, Stubert was born!
+
+## What Stubert do?
+
+Stubert can do anything you'd typically do with Claude Code (file browsing, skills, MCPs, subagents), but also:
+
+- Respond to messages via Telegram or Discord
+- Perform scheduled tasks
+- Act periodically based on a Hearbeat configuration
+- Restrict permissions for each chat platform & user
+- Browse the web using an isolated agent with **zero** local permissions
+
+## What Stubert *not* do?
+
+- Passively browse the internet with your personal info in its context
+- Rack up API usage costs (unless you specifically turn that on in your Claude account settings)
+- Open your system to a number of security vulnerabilities (unless you want it to, I guess?)
+- Access your entire filesystem (unless you specifically configure it to)
+- Be configured by an awful webUI 
+
+# Installation
+
+> [!CAUTION]
+> This software might be safer than Openclaw, but that is a very low bar. Please use caution and care when running agents on your filesystem!
+
+### Prerequisites
+
+The Claude CLI subprocess needs these at runtime:
+- **Node.js** — Claude Code CLI runtime
+- **Claude Code CLI** — installed via `npm install -g @anthropic-ai/claude-code`
+- **Claude Code authenticated** — run `claude login` as the user that will run the service
+- **Discord or Telegram Bot** ready for integration – You'll need the OAuth token from either
 
 ### 1. Clone the repository
-
+ 
 ```bash
-git clone <repo-url> stubert
+git clone git@github.com:ThatCooperLewis/stubert.git stubert
 cd stubert
 ```
 
@@ -59,8 +104,8 @@ EOF
 
 Optional additional context files (Claude CLI reads these if they exist):
 - `SOUL.md` — personality and behavioral guidelines
-- `USER.md` — information about the user
-- `MEMORY.md` — persistent memory across sessions
+- `USER.md` — concrete information about the user
+- `MEMORY.md` — persistent memory across sessions (Claude keeps its own memory file in ~./claude/projects, it's recommened to symlink it, or instruct Claude to write to this one instead).
 
 You can use `@import` in `CLAUDE.md` to chain these files together.
 
@@ -74,14 +119,7 @@ cargo build --release
 
 The binary is at `target/release/stubert`.
 
-### 6. Prerequisites
-
-The Claude CLI subprocess needs these at runtime:
-- **Node.js** — Claude Code CLI runtime
-- **Claude Code CLI** — installed via `npm install -g @anthropic-ai/claude-code`
-- **Claude Code authenticated** — run `claude login` as the user that will run the service
-
-### 7. Run the service
+### 6. Run the service
 
 You can run directly for testing:
 
@@ -91,7 +129,7 @@ You can run directly for testing:
 
 For production, set up a systemd service — see the [Systemd Service](#systemd-service) section below.
 
-### 8. Verify
+### 7. Verify
 
 ```bash
 curl http://localhost:8484/health
