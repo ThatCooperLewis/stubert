@@ -50,10 +50,9 @@ Stubert can do anything you'd typically do with Claude Code (file browsing, skil
 ### Prerequisites
 
 The Claude CLI subprocess needs these at runtime:
-- **Node.js** — Claude Code CLI runtime
-- **Claude Code CLI** — installed via `npm install -g @anthropic-ai/claude-code`
+- **Claude Code CLI** — For this env I installed via `npm install -g @anthropic-ai/claude-code`, you may need to adjust your $PATH below for other intall routes. 
 - **Claude Code authenticated** — run `claude login` as the user that will run the service
-- **Discord or Telegram Bot** ready for integration – You'll need the OAuth token from either
+- **Discord or Telegram Bot** ready for integration – You'll need the OAuth token from either. The Openclaw docs ([Discord](https://docs.openclaw.ai/channels/discord#discord) / [Telegram](https://docs.openclaw.ai/channels/telegram)) are sufficient.
 
 ### 1. Clone the repository
  
