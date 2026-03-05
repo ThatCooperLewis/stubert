@@ -98,7 +98,7 @@ Stubert sets its working directory to the runtime directory, so the Claude CLI r
 cat > config/CLAUDE.md << 'EOF'
 # Agent Instructions
 
-You are a helpful assistant managed by Stubert.
+You are a helpful assistant named Stubert.
 EOF
 ```
 
