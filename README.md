@@ -248,21 +248,7 @@ in
 
 Import this module in your flake/configuration and run `nixos-rebuild switch`.
 
-## Running Tests
-
-```bash
-# All unit + integration tests
-cargo test
-
-# Specific module
-cargo test --lib gateway::session
-
-# Integration tests (mocked Claude CLI, full Gateway pipeline)
-cargo test --test gateway_integration
-
-# Live CLI tests (real Claude CLI, requires auth)
-cargo test --test live_cli -- --ignored
-```
+# Usage + Configuration
 
 ## Slash Commands
 
@@ -414,6 +400,22 @@ Stubert exposes an HTTP health endpoint at `GET /health` on the configured port 
 - **`active_sessions`** — number of tracked conversation sessions
 - **`inflight_calls`** — sessions currently waiting on a Claude CLI response
 - **`last_heartbeat`** / **`last_cron_execution`** — ISO 8601 timestamps of the most recent successful execution, or `null` if none yet
+
+## Running Tests
+
+```bash
+# All unit + integration tests
+cargo test
+
+# Specific module
+cargo test --lib gateway::session
+
+# Integration tests (mocked Claude CLI, full Gateway pipeline)
+cargo test --test gateway_integration
+
+# Live CLI tests (real Claude CLI, requires auth)
+cargo test --test live_cli -- --ignored
+```
 
 ## Project Structure
 
