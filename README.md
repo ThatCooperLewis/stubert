@@ -24,6 +24,11 @@ I made this with Opus 4.6 after being frustrated by the awful design of Openclaw
 
 I didn't need every conceivable chat platform and model integration, I didn't want on-by-default web access, and I wanted it to use all the skills I already built for my Claude Code installation. I then learned that Claude Code can be run headless, so all I needed was an 'Openclaw' that worked specifically through Claude. So, Stubert was born!
 
+> [!IMPORTANT]
+> This program is ToS-compliant because it talks to the `claude` binary directly, which comes with many downsides, mainly a small hit to response times. However, as of time of writing, this is allowed and [well-documented by Anthropic](https://code.claude.com/docs/en/headless) (assuming personal + private usage). Other programs like Openclaw use an API proxy to circumvent the binary entirely, which much faster, but is very much _not_ allowed.
+>
+> All that being said, I'm not a lawyer, and cannot 100% guarantee that this will be kosher in perpetuity.
+
 ## What Stubert do?
 
 Stubert can do anything you'd typically do with Claude Code (file browsing, skills, MCPs, subagents), but also:
