@@ -47,6 +47,16 @@ enum Command {
         #[arg(long)]
         runtime_dir: Option<PathBuf>,
     },
+    /// Start an interactive Claude Code session in the runtime directory
+    Chat {
+        /// Path to the runtime directory (auto-detected from binary location if omitted)
+        #[arg(long)]
+        runtime_dir: Option<PathBuf>,
+
+        /// Model to use (sonnet, opus, haiku, or full model ID)
+        #[arg(long)]
+        model: Option<String>,
+    },
     /// Query context window usage for a session
     Context {
         /// The Claude session ID to query
@@ -94,6 +104,13 @@ async fn main() -> ExitCode {
         Command::Restart => restart(),
         Command::Status => status().await,
         Command::Rebuild => rebuild(),
+        Command::Chat { runtime_dir, model } => match resolve_runtime_dir(runtime_dir) {
+            Ok(dir) => chat(dir, model),
+            Err(e) => {
+                eprintln!("{e}");
+                ExitCode::FAILURE
+            }
+        },
         Command::Schedules { runtime_dir } => match resolve_runtime_dir(runtime_dir) {
             Ok(dir) => schedules(dir),
             Err(e) => {
@@ -224,6 +241,39 @@ fn schedules(runtime_dir: PathBuf) -> ExitCode {
 
     eprintln!("{}", format_schedule_list(&tasks));
     ExitCode::SUCCESS
+}
+
+fn chat(runtime_dir: PathBuf, model: Option<String>) -> ExitCode {
+    std::env::set_current_dir(&runtime_dir).expect("failed to set working directory");
+    dotenvy::dotenv().ok();
+
+    let config = match load_config(Path::new("config.yaml")) {
+        Ok(c) => c,
+        Err(e) => {
+            eprintln!("failed to load config: {e}");
+            return ExitCode::FAILURE;
+        }
+    };
+
+    let mut cmd = std::process::Command::new(&config.claude.cli_path);
+    cmd.current_dir(&config.claude.working_directory);
+    cmd.env("CLAUDE_ENV_FILE", &config.claude.env_file_path);
+    cmd.env("SHELL", "/bin/bash");
+
+    // Prepend .venv/bin to PATH (same as call_claude)
+    if let Ok(current_path) = std::env::var("PATH") {
+        cmd.env("PATH", format!(".venv/bin:{current_path}"));
+    }
+
+    if let Some(m) = model {
+        cmd.args(["--model", &resolve_model(&m)]);
+    }
+
+    // Replace this process with claude (Unix exec)
+    use std::os::unix::process::CommandExt;
+    let err = cmd.exec();
+    eprintln!("failed to exec claude: {err}");
+    ExitCode::FAILURE
 }
 
 fn restart() -> ExitCode {

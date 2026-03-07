@@ -254,7 +254,28 @@ Import this module in your flake/configuration and run `nixos-rebuild switch`.
 
 # Usage + Configuration
 
+## CLI Commands
+
+Address the binary directly on the host
+
+| Command | Description |
+|---------|-------------|
+| `stubert run` | Start the service (default if no subcommand given) |
+| `stubert chat` | Open an interactive Claude Code session in the runtime directory |
+| `stubert status` | Show service status (uptime, sessions, in-flight calls) |
+| `stubert restart` | Send SIGTERM to the running service (systemd restarts it) |
+| `stubert rebuild` | `cargo build --release` then restart the service |
+| `stubert schedules` | Show configured scheduled tasks |
+| `stubert context <session_id>` | Query context window usage for a session |
+| `stubert search <query>` | Search the web using an isolated Claude agent |
+
+Options available on most subcommands:
+- `--runtime-dir <path>` — path to runtime directory (auto-detected from binary location if omitted)
+- `--model <alias>` — model to use: `sonnet`, `opus`, `haiku`, or a full model ID (available on `chat` and `search`)
+
 ## Slash Commands
+
+Available when chatting with Stubert in Discord or Telegram
 
 | Command | Description |
 |---------|-------------|
