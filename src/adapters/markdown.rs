@@ -310,6 +310,78 @@ fn flush_table_discord(table: &[&str], output: &mut Vec<String>) {
     output.push("```".to_string());
 }
 
+// -- iMessage conversion (strip all markdown) --
+
+/// Convert GitHub-flavored markdown to plain text for iMessage.
+///
+/// iMessage has no markdown formatting support, so this strips all
+/// formatting markers while preserving the underlying text content.
+pub fn to_imessage(text: &str) -> String {
+    let mut output = Vec::new();
+    let mut in_code_block = false;
+
+    for line in text.lines() {
+        let trimmed = line.trim();
+
+        // Code block toggle — strip the fences, keep content
+        if trimmed.starts_with("```") {
+            in_code_block = !in_code_block;
+            continue;
+        }
+
+        // Inside code block — emit verbatim
+        if in_code_block {
+            output.push(line.to_string());
+            continue;
+        }
+
+        // Drop horizontal rules
+        if is_horizontal_rule(trimmed) {
+            continue;
+        }
+
+        // Headers → plain text (strip # prefix)
+        if let Some(caps) = header_re().captures(trimmed) {
+            let heading_text = caps.get(1).unwrap().as_str();
+            output.push(heading_text.to_string());
+            continue;
+        }
+
+        // Regular line — strip inline formatting
+        output.push(strip_inline_markdown(line));
+    }
+
+    output.join("\n")
+}
+
+/// Strip inline markdown formatting from a line.
+fn strip_inline_markdown(line: &str) -> String {
+    let mut result = line.to_string();
+
+    // Links [text](url) → text (url)
+    result = link_re()
+        .replace_all(&result, |caps: &regex::Captures| {
+            let text = caps.get(1).unwrap().as_str();
+            let url = caps.get(2).unwrap().as_str();
+            format!("{text} ({url})")
+        })
+        .to_string();
+
+    // Bold **text** → text (must come before italic)
+    result = bold_re().replace_all(&result, "$1").to_string();
+
+    // Italic *text* → text
+    result = italic_re().replace_all(&result, "$1").to_string();
+
+    // Strikethrough ~~text~~ → text
+    result = strikethrough_re().replace_all(&result, "$1").to_string();
+
+    // Inline code `text` → text
+    result = inline_code_re().replace_all(&result, "$1").to_string();
+
+    result
+}
+
 #[cfg(test)]
 mod test_to_telegram {
     use super::*;
@@ -451,5 +523,75 @@ mod test_to_discord {
     #[test]
     fn empty_input_returns_empty() {
         assert_eq!(to_discord(""), "");
+    }
+}
+
+#[cfg(test)]
+mod test_to_imessage {
+    use super::*;
+
+    #[test]
+    fn strips_bold() {
+        assert_eq!(to_imessage("**bold**"), "bold");
+    }
+
+    #[test]
+    fn strips_italic() {
+        assert_eq!(to_imessage("*italic*"), "italic");
+    }
+
+    #[test]
+    fn strips_strikethrough() {
+        assert_eq!(to_imessage("~~strike~~"), "strike");
+    }
+
+    #[test]
+    fn strips_inline_code() {
+        assert_eq!(to_imessage("Use `foo.bar()` here"), "Use foo.bar() here");
+    }
+
+    #[test]
+    fn converts_links() {
+        assert_eq!(
+            to_imessage("[click here](https://example.com)"),
+            "click here (https://example.com)"
+        );
+    }
+
+    #[test]
+    fn strips_code_block_fences() {
+        let input = "before\n```rust\nfn main() {}\n```\nafter";
+        let result = to_imessage(input);
+        assert_eq!(result, "before\nfn main() {}\nafter");
+    }
+
+    #[test]
+    fn strips_headers() {
+        assert_eq!(to_imessage("# Heading"), "Heading");
+        assert_eq!(to_imessage("## Sub Heading"), "Sub Heading");
+    }
+
+    #[test]
+    fn drops_horizontal_rules() {
+        let result = to_imessage("before\n---\nafter");
+        assert!(!result.contains("---"));
+        assert!(result.contains("before"));
+        assert!(result.contains("after"));
+    }
+
+    #[test]
+    fn mixed_formatting() {
+        let input = "**bold** and *italic* with `code`";
+        assert_eq!(to_imessage(input), "bold and italic with code");
+    }
+
+    #[test]
+    fn empty_input_returns_empty() {
+        assert_eq!(to_imessage(""), "");
+    }
+
+    #[test]
+    fn plain_text_unchanged() {
+        assert_eq!(to_imessage("Hello world!"), "Hello world!");
     }
 }

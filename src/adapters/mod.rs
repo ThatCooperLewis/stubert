@@ -1,3 +1,4 @@
+pub mod bluebubbles;
 pub mod discord;
 pub mod markdown;
 pub mod message_split;

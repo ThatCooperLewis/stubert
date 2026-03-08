@@ -14,6 +14,16 @@ discord:
   allowed_users: [987654321]          # Discord user IDs allowed to interact
   # unauthorized_response: "Not authorized."
 
+bluebubbles:
+  server_url: "${BLUEBUBBLES_SERVER_URL}"
+  password: "${BLUEBUBBLES_PASSWORD}"
+  chat_guids: ["iMessage;+;chat123456"]
+  poll_interval_secs: 3
+  send_method: "private-api"
+  contacts:                             # Optional: map phone numbers to display names
+    "+15551234567": "Alice"
+    "+15559876543": "Bob"
+
 # --- Claude CLI ---
 
 claude:
@@ -25,6 +35,7 @@ claude:
   allowed_tools:                      # Per-platform tool allowlists
     telegram: ["Bash", "Read", "Write", "Edit", "Glob", "Grep"]
     discord: ["Read"]
+    bluebubbles: ["Bash", "Read", "Write", "Edit", "Glob", "Grep"]
   add_dirs: []                        # Additional directories to pass to CLI via --add-dir
   # - "/home/youruser"              # Additional directories the agent can access
   # - "/mnt/shared-drive"

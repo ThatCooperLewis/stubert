@@ -631,6 +631,7 @@ mod tests {
             scheduler: None,
             files: None,
             gateway: None,
+            bluebubbles: None,
         }
     }
 

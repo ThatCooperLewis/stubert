@@ -5,6 +5,7 @@ use std::sync::Arc;
 use clap::{Parser, Subcommand};
 use uuid::Uuid;
 
+use stubert::adapters::bluebubbles::BlueBubblesAdapter;
 use stubert::adapters::discord::DiscordAdapter;
 use stubert::adapters::telegram::TelegramAdapter;
 use stubert::config::load_config;
@@ -483,11 +484,11 @@ async fn run(runtime_dir: PathBuf) {
         PathBuf::from(&config.claude.working_directory).join("submitted-files");
 
     let telegram = TelegramAdapter::new(config.telegram.clone(), files_dir.clone());
-    let discord = DiscordAdapter::new(config.discord.clone(), files_dir);
+    let discord = DiscordAdapter::new(config.discord.clone(), files_dir.clone());
 
     // Gateway
     let mut gateway = Gateway::new(
-        config,
+        config.clone(),
         session_manager,
         history_writer,
         claude_caller,
@@ -498,6 +499,11 @@ async fn run(runtime_dir: PathBuf) {
 
     gateway.register_adapter("telegram", telegram).await;
     gateway.register_adapter("discord", discord).await;
+
+    if let Some(bb_config) = config.bluebubbles.clone() {
+        let bb = BlueBubblesAdapter::new(bb_config, files_dir);
+        gateway.register_adapter("bluebubbles", bb).await;
+    }
     gateway.start().await;
 
     // Wait for shutdown signal

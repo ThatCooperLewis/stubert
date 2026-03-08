@@ -33,7 +33,7 @@ I didn't need every conceivable chat platform and model integration, I didn't wa
 
 Stubert can do anything you'd typically do with Claude Code (file browsing, skills, MCPs, subagents), but also:
 
-- Respond to messages via Telegram or Discord
+- Respond to messages via Telegram, Discord, or iMessage (via BlueBubbles)
 - Perform scheduled tasks
 - Act periodically based on a Hearbeat configuration
 - Restrict permissions for each chat platform & user
@@ -58,6 +58,7 @@ The Claude CLI subprocess needs these at runtime:
 - **Claude Code CLI** — For this env I installed via `npm install -g @anthropic-ai/claude-code`, you may need to adjust your $PATH below for other intall routes. 
 - **Claude Code authenticated** — run `claude login` as the user that will run the service
 - **Discord or Telegram Bot** ready for integration – You'll need the OAuth token from either. The Openclaw docs ([Discord](https://docs.openclaw.ai/channels/discord#discord) / [Telegram](https://docs.openclaw.ai/channels/telegram)) are sufficient.
+- **BlueBubbles server** (optional) — for iMessage integration. Requires a [BlueBubbles](https://bluebubbles.app/) server running on a Mac with the Private API enabled.
 
 ### 1. Clone the repository
  
@@ -89,6 +90,8 @@ Create a `.env` file with your bot tokens:
 cat > config/.env << 'EOF'
 TELEGRAM_BOT_TOKEN=your-telegram-token-here
 DISCORD_BOT_TOKEN=your-discord-token-here
+BLUEBUBBLES_SERVER_URL=http://your-mac-ip:1234
+BLUEBUBBLES_PASSWORD=your-bluebubbles-password
 EOF
 ```
 
@@ -152,7 +155,7 @@ You should see a JSON response like:
 }
 ```
 
-Send a message to your bot on Telegram or Discord to confirm it responds.
+Send a message to your bot on Telegram, Discord, or iMessage to confirm it responds.
 
 ### Restarting after code changes
 
@@ -303,6 +306,16 @@ discord:
   token: "${DISCORD_BOT_TOKEN}"
   allowed_users: [987654321]          # Discord user IDs
   # unauthorized_response: "Not authorized."
+
+bluebubbles:                            # optional — iMessage via BlueBubbles
+  server_url: "${BLUEBUBBLES_SERVER_URL}"
+  password: "${BLUEBUBBLES_PASSWORD}"
+  chat_guids: ["iMessage;+;chat123456"] # Chat GUIDs to monitor
+  poll_interval_secs: 3                 # How often to poll for new messages
+  send_method: "private-api"            # "private-api" or "apple-script"
+  contacts:
+    "+18004441234": "Cooper"          # Link names to contacts, so Stubert knows who is who
+    "+18004446789": "Tim Apple"        
 
 claude:
   cli_path: "claude"                  # Path to Claude CLI binary
@@ -455,7 +468,8 @@ src/
 │   ├── mod.rs               # PlatformAdapter trait, IncomingMessage, AdapterError
 │   ├── telegram.rs          # TelegramAdapter (teloxide long-polling, media downloads)
 │   ├── discord.rs           # DiscordAdapter (serenity WebSocket, slash commands, media)
-│   ├── markdown.rs          # to_telegram() (MarkdownV2), to_discord()
+│   ├── bluebubbles.rs       # BlueBubblesAdapter (REST API polling, iMessage via BlueBubbles)
+│   ├── markdown.rs          # to_telegram() (MarkdownV2), to_discord(), to_imessage()
 │   ├── message_split.rs     # split_message() (code-block-aware chunking)
 │   └── sanitize.rs          # sanitize_filename() (path stripping, collision resolution)
 ├── gateway/

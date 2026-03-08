@@ -17,6 +17,8 @@ pub struct StubbertConfig {
     pub files: Option<FilesConfig>,
     #[serde(default)]
     pub gateway: Option<GatewayConfig>,
+    #[serde(default)]
+    pub bluebubbles: Option<BlueBubblesConfig>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -117,4 +119,25 @@ pub struct FilesConfig {
 #[derive(Debug, Clone, Deserialize)]
 pub struct GatewayConfig {
     pub max_message_length: usize,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct BlueBubblesConfig {
+    pub server_url: String,
+    pub password: String,
+    pub chat_guids: Vec<String>,
+    #[serde(default = "default_bb_poll_interval")]
+    pub poll_interval_secs: u64,
+    #[serde(default = "default_bb_send_method")]
+    pub send_method: String,
+    #[serde(default)]
+    pub contacts: std::collections::HashMap<String, String>,
+}
+
+fn default_bb_poll_interval() -> u64 {
+    3
+}
+
+fn default_bb_send_method() -> String {
+    "private-api".to_string()
 }

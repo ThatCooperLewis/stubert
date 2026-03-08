@@ -220,6 +220,7 @@ pub fn make_test_config(working_dir: &Path) -> StubbertConfig {
         scheduler: None,
         files: None,
         gateway: None,
+        bluebubbles: None,
     }
 }
 
